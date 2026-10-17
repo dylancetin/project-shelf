@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Project Shelf</title>
+  <link rel="stylesheet" href="extension.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body class="popup">
+  <main>
+    <header class="brand"><img src="icon.png" alt="" width="26" height="26"><span>Project Shelf</span></header>
+    <p id="address" class="address" hidden></p>
+    <nav id="destinations" aria-label="Project Shelf shortcuts" hidden><a id="home" class="popup-destination" href="#" target="_blank" rel="noopener noreferrer"><span>Open Shelf</span><span aria-hidden="true">↗</span></a><a id="manage" class="popup-destination" href="#" target="_blank" rel="noopener noreferrer"><span>Manage projects &amp; services</span><span aria-hidden="true">↗</span></a></nav>
+    <p id="connection-status" class="popup-status" role="status">Reading settings…</p>
+    <button id="settings" type="button" class="text-link">Extension settings</button>
+  </main>
+</body>
+</html>

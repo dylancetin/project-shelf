@@ -1,0 +1,19 @@
+.bookmark-favicon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; color: var(--quiet); }
+.bookmark-favicon img { display: block; width: 16px; height: 16px; object-fit: contain; }
+.bookmark-icon-tools { flex-basis: 100%; min-width: 0; }
+.bookmark-icon-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 20px; }
+.bookmark-icon-privacy, .bookmark-icon-feedback { max-width: 78ch; font-size: 11px; line-height: 1.65; color: var(--quiet); overflow-wrap: anywhere; }
+.bookmark-icon-privacy { margin-top: 2px; }
+.bookmark-icon-feedback { margin-top: 7px; color: var(--secondary); }
+.bookmark-icon-error { color: #9a483e; }
+.bookmark-monogram { border-radius: 3px; font-size: 8px; font-weight: 600; letter-spacing: -.15px; line-height: 1; }
+.bookmark-monogram-0 { color: #42607b; background: #e5edf5; }
+.bookmark-monogram-1 { color: #42634f; background: #e7eee8; }
+.bookmark-monogram-2 { color: #765a79; background: #efe8f0; }
+.bookmark-monogram-3 { color: #766334; background: #f3edde; }
+.bookmark-monogram-4 { color: #815a4d; background: #f4e8e0; }
+.bookmark-monogram-5 { color: #566477; background: #e9edf0; }
+@media (max-width: 540px) {
+  .bookmark-icon-actions { gap: 4px 16px; }
+  .bookmark-icon-actions .text-button { min-height: 36px; }
+}

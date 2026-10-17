@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Project Shelf — New Tab",
+  "version": "1.4.3",
+  "description": "A locally cached Project Shelf in every new tab. No redirect; keep your browser's address bar focus.",
+  "minimum_chrome_version": "109",
+  "permissions": ["storage", "scripting"],
+  "optional_permissions": ["bookmarks", "favicon"],
+  "optional_host_permissions": ["http://*/*", "https://*/*", "https://icons.duckduckgo.com/*"],
+  "chrome_url_overrides": { "newtab": "newtab.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": { "default_title": "Project Shelf", "default_popup": "popup.html", "default_icon": "icon.png" },
+  "icons": { "128": "icon.png" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: http: https:; connect-src 'self' http: https:; object-src 'none'; base-uri 'none'; frame-src http: https:; form-action 'none'"
+  }
+}

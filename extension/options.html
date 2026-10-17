@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Project Shelf · New tab settings</title>
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="extension.css">
+  <script type="module" src="options.js"></script>
+</head>
+<body>
+  <main class="settings-page">
+    <header class="brand"><img src="icon.png" alt="" width="30" height="30"><span>Project Shelf</span><span class="extension-label">New-tab extension</span></header>
+    <section class="settings-content" aria-labelledby="heading">
+      <h1 id="heading">New tab settings</h1>
+      <p class="intro">Shelf runs locally in your new tab. No redirect, no loading-page flash, and no autofocus stealing the browser’s address bar.</p>
+      <form id="settings-form" novalidate>
+        <label class="field-label" for="shelf-url">Project Shelf address</label>
+        <input id="shelf-url" name="url" type="url" placeholder="http://beelinkk:4958/" aria-describedby="address-help" autocomplete="url" spellcheck="false" required>
+        <p id="address-help" class="help">The server supplies live data and runs commands. Allow access to this host when prompted; Chrome’s host grant includes all ports.</p>
+        <div class="presets" role="group" aria-label="Suggested Shelf addresses">
+          <button type="button" data-url="http://beelinkk:4958/">Local DNS</button>
+          <button type="button" data-url="http://192.168.1.50:4958/">LAN IP</button>
+          <button type="button" data-url="https://beelinkk.tail750ac6.ts.net/">Tailscale HTTPS</button>
+          <button type="button" data-url="http://100.119.176.63:4958/">Tailscale IP</button>
+        </div>
+        <div class="connection-option">
+          <h2 class="field-label">Local cache</h2>
+          <p class="help">The frontend and bundled icons are installed with the extension. Saved destinations appear immediately while live data refreshes. Server actions are never cached or queued.</p>
+          <p id="cache-status" class="help" role="status">Reading cache…</p>
+          <button id="clear-cache" type="button" class="text-link" disabled>Clear saved destinations</button>
+        </div>
+        <div class="actions"><button class="button button-primary" id="save" type="submit" disabled>Save settings</button><button class="button" id="test" type="button" disabled>Test connection</button><a id="open-shelf" class="text-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Shelf</a></div>
+        <p id="status" class="feedback" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <footer class="settings-footer"><p>Your server address and a separate snapshot of each server’s project metadata stay in this browser. No browsing history, bookmarks, analytics, logs, or live process state are stored.</p><p>Disable your previous new-tab extension. Keep the extracted extension folder in place. Update the extension to receive frontend changes.</p></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,8 @@
+.project-card .card-order-handle { width: 22px; height: 30px; margin-left: -5px; touch-action: none; cursor: grab; opacity: .65; }
+.card-order-handle:hover, .card-order-handle:focus-visible { opacity: 1; }
+.card-order-handle:active { cursor: grabbing; }
+.project-card-dragging { position: relative; z-index: 6; outline: 1px solid var(--line-selected); background: var(--surface-selected); }
+.list-layout .project-card:has(.card-order-handle) { grid-template-columns: 180px minmax(100px, 1fr) minmax(190px, 230px) 190px; }
+@media (max-width: 1000px) { .list-layout .project-card:has(.card-order-handle) { grid-template-columns: 180px minmax(100px, 1fr) 190px; } }
+@media (max-width: 760px) { .list-layout .project-card:has(.card-order-handle) { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .project-card { transition: none !important; } }

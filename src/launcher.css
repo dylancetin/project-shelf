@@ -1,0 +1,133 @@
+.launcher-main { width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px 28px 32px; }
+.topbar-home .topbar-inner { gap: 24px; }
+.topbar-home .topbar-start, .topbar-home .topbar-actions { flex-shrink: 0; }
+.topbar-search { flex: 1; min-width: 0; max-width: 560px; }
+.launcher-search { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 10px; margin: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--quiet); }
+.launcher-search:focus-within { border-color: var(--focus); }
+.launcher-search input { width: 100%; min-width: 0; padding: 6px 0; outline: none; border: 0; background: transparent; color: var(--ink); font-size: 13px; line-height: 1.5; }
+.launcher-search input::placeholder { color: var(--quiet); }
+.launcher-search .icon-button { width: 32px; height: 32px; margin-right: -7px; }
+.launcher-search kbd { width: 22px; height: 24px; flex-shrink: 0; }
+.launcher-bang { padding: 0 10px; color: var(--secondary); font-size: 13px; line-height: 1.6; }
+.launcher-bang-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; color: var(--quiet); font-size: 12px; }
+.launcher-bang-link { display: flex; align-items: center; gap: 14px; padding: 16px 0; color: var(--ink); }
+.launcher-bang-link:hover { color: var(--secondary); }
+.launcher-bang-token { flex-shrink: 0; padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--mono); font-size: 13px; }
+.launcher-bang-link > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.launcher-bang-link strong { font-size: 15px; font-weight: 500; }
+.launcher-bang-link > span:nth-child(2) > span { overflow-wrap: anywhere; color: var(--secondary); }
+.launcher-bang-link > svg { flex-shrink: 0; margin-left: auto; }
+.launcher-bang-examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.launcher-bang-examples button { padding: 4px 9px; border: 1px solid var(--line); border-radius: 4px; color: var(--secondary); font-family: var(--mono); font-size: 12px; }
+.launcher-bang-examples button:hover { background: var(--surface-hover); color: var(--ink); }
+.launcher-groups { display: grid; gap: 33px; }
+.launcher-group h2 { margin: 0 0 12px 10px; font-size: 12px; line-height: 1.5; font-weight: 500; color: var(--secondary); }
+.launcher-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.launcher-group-heading h2, .launcher-compact .launcher-group-heading h2 { margin-bottom: 0; }
+.launcher-group-heading .text-button { min-height: 26px; padding-right: 5px; font-size: 10px; color: var(--quiet); }
+.launcher-order-actions { display: flex; flex-wrap: wrap; gap: 8px 15px; }
+.launcher-order-actions .text-button { color: var(--quiet); font-size: 11px; }
+.management-order-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 10px; }
+.management-order-actions > span { font-size: 11px; color: var(--quiet); }
+.launcher-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: start; gap: 5px 14px; }
+.launcher-entry { --launcher-text-offset: 55px; position: relative; display: flex; flex-wrap: wrap; align-items: center; min-width: 0; border-radius: 6px; transition: background .16s; }
+.launcher-entry:hover, .launcher-entry:focus-within { z-index: 2; background: var(--surface-hover); }
+.launcher-entry .launcher-drag-handle { width: 20px; height: 30px; touch-action: none; cursor: grab; opacity: 0; }
+.launcher-entry:hover .launcher-drag-handle, .launcher-entry:focus-within .launcher-drag-handle { opacity: 1; }
+.launcher-drag-handle:active { cursor: grabbing; }
+.launcher-entry-dragging { z-index: 5; background: var(--surface-selected); outline: 1px solid var(--line-selected); }
+.launcher-entry:has(.launcher-drag-handle) { --launcher-text-offset: 75px; }
+.launcher-compact .launcher-entry:has(.launcher-drag-handle) .launcher-link { padding-left: 1px; }
+.launcher-link { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; min-height: 68px; padding: 10px 0 10px 10px; border-radius: 6px; }
+.launcher-project .launcher-link { min-height: 54px; padding-top: 6px; padding-bottom: 4px; }
+.launcher-link .project-avatar { width: 34px; height: 34px; border-radius: 7px; font-size: 14px; letter-spacing: -.3px; }
+.launcher-link .project-avatar img { padding: 5px; background: var(--surface-subtle); }
+.launcher-label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.launcher-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 13px; font-weight: 500; line-height: 1.35; color: var(--ink); }
+.launcher-address { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--quiet); font-size: 11px; line-height: 1.4; }
+.launcher-starting { display: inline-flex; align-items: center; gap: 5px; color: var(--secondary); }
+.launcher-entry .launcher-more { width: 25px; height: 36px; margin-right: 2px; color: var(--quiet); opacity: 0; }
+.launcher-entry:hover .launcher-more, .launcher-entry:focus-within .launcher-more { opacity: 1; }
+.launcher-actions { display: flex; width: 100%; height: 28px; gap: 4px; padding: 0 8px 4px var(--launcher-text-offset); }
+.launcher-actions .icon-button { width: 24px; height: 24px; visibility: hidden; pointer-events: none; }
+.launcher-entry:hover .launcher-actions .icon-button, .launcher-entry:focus-within .launcher-actions .icon-button, .launcher-actions .is-running, .launcher-actions .is-working { visibility: visible; pointer-events: auto; }
+.launcher-actions .icon-button:disabled { opacity: .4; }
+.launcher-actions .icon-button:hover:not(:disabled) { background: var(--surface-selected); }
+.launcher-actions .launcher-run.is-running, .launcher-actions .launcher-run.is-running:hover:not(:disabled) { color: var(--green); }
+.launcher-continued { margin-left: 8px; color: var(--quiet); font-size: 11px; font-weight: 400; }
+.launcher-compact .launcher-groups { grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); align-items: start; gap: 28px 30px; }
+.launcher-compact .launcher-group h2 { margin-bottom: 13px; font-size: 13px; }
+.launcher-compact .launcher-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.launcher-compact .launcher-entry { flex-wrap: nowrap; }
+.launcher-compact .launcher-link { flex: 0 1 auto; min-height: 38px; padding: 7px 0 7px 10px; gap: 10px; }
+.launcher-compact .launcher-more { order: 1; flex-shrink: 0; margin-left: auto; }
+.launcher-compact .launcher-actions { flex-shrink: 0; width: auto; height: auto; margin-left: 6px; padding: 0; }
+.launcher-compact .launcher-link .project-avatar { width: 21px; height: 21px; border-radius: 4px; font-size: 10px; }
+.launcher-compact .launcher-link .project-avatar img { padding: 1px; background: transparent; }
+.launcher-compact .launcher-label { display: block; }
+.launcher-compact .launcher-name { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; line-height: 1.5; font-weight: 400; }
+.launcher-compact .launcher-address { display: none; }
+.launcher-empty { padding: 48px 16px 62px; text-align: center; }
+.launcher-empty h2 { font-family: var(--serif); font-size: 25px; letter-spacing: -.4px; font-weight: 400; color: var(--ink); }
+.launcher-empty p { margin: 11px 0 18px; font-size: 13px; line-height: 1.6; color: var(--secondary); }
+.launcher-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 38px; padding: 18px 10px 0; border-top: 1px solid var(--line); }
+.launcher-footer > a { margin-left: auto; }
+.launcher-footer a { display: inline-flex; align-items: center; gap: 7px; color: var(--quiet); font-size: 12px; line-height: 1.6; }
+.launcher-footer a:hover { color: var(--ink); }
+.launcher-layout-switch { display: inline-flex; gap: 3px; }
+.launcher-layout-switch button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 5px; color: var(--quiet); font-size: 12px; }
+.launcher-layout-switch button:hover { background: var(--surface-hover); color: var(--ink); }
+.launcher-layout-switch button[aria-pressed="true"] { background: var(--surface-selected); color: var(--ink); }
+.launcher-placeholder { display: flex; align-items: center; gap: 11px; height: 68px; padding: 10px; }
+.launcher-placeholder span { width: 34px; height: 34px; flex-shrink: 0; border-radius: 7px; background: var(--surface-selected); }
+.launcher-placeholder i { width: 65%; height: 10px; border-radius: 3px; background: var(--surface-selected); }
+
+@media (max-width: 1000px) {
+  .launcher-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .launcher-main { padding: 24px 22px 32px; }
+  .topbar-home .topbar-inner { gap: 14px; }
+  .topbar-home .brand > span:not(.shelf-mark) { display: none; }
+  .launcher-search { height: 40px; }
+  .launcher-search input { font-size: 16px; }
+  .launcher-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 8px; }
+  .launcher-entry .launcher-more { opacity: 1; }
+  .launcher-compact .launcher-groups { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 26px 18px; }
+}
+@media (max-width: 540px) {
+  .launcher-main { padding: 20px 18px 28px; }
+  .topbar-home .topbar-inner { gap: 8px; }
+  .topbar-home .brand, .launcher-search kbd { display: none; }
+  .launcher-groups { gap: 27px; }
+  .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 6px; }
+  .launcher-group h2 { margin-left: 7px; margin-bottom: 8px; }
+  .launcher-link { padding-left: 7px; gap: 9px; min-height: 71px; }
+  .launcher-link .project-avatar { width: 32px; height: 32px; font-size: 13px; }
+  .launcher-name { font-size: 12px; }
+  .launcher-entry .launcher-more { width: 23px; height: 40px; margin-right: 0; }
+  .launcher-entry { --launcher-text-offset: 48px; }
+  .launcher-compact .launcher-groups { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .launcher-compact .launcher-link { min-height: 42px; }
+  .launcher-compact .launcher-entry .launcher-more { width: 34px; }
+  .launcher-footer { margin-top: 23px; padding: 16px 7px 0; justify-content: flex-start; }
+  .launcher-footer > a { margin-left: 0; }
+}
+/* Hidden compact controls should not shorten names before interaction. */
+@media (hover: hover) and (pointer: fine) {
+  .launcher-compact .launcher-entry:not(:hover):not(:focus-within) .launcher-actions { margin-left: 0; gap: 0; }
+  .launcher-compact .launcher-entry:not(:hover):not(:focus-within) .launcher-actions .icon-button:not(.is-running):not(.is-working) { width: 0; }
+  .launcher-compact .launcher-entry:not(:hover):not(:focus-within) .launcher-actions:has(.is-running, .is-working) { margin-left: 6px; }
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .launcher-compact .launcher-entry:not(:hover):not(:focus-within) .launcher-more { width: 0; margin: 0; pointer-events: none; }
+}
+@media (hover: none), (pointer: coarse) {
+  .launcher-entry .launcher-drag-handle { opacity: 1; width: 24px; }
+  .launcher-entry .launcher-more { opacity: 1; }
+  .launcher-actions, .launcher-compact .launcher-actions { height: 36px; padding-bottom: 4px; gap: 6px; }
+  .launcher-compact .launcher-actions { height: auto; padding: 0; }
+  .launcher-actions .icon-button { width: 32px; height: 32px; visibility: visible; pointer-events: auto; }
+  .launcher-actions .icon-button:disabled { opacity: .4; }
+}
+@media (prefers-reduced-motion: reduce) { .launcher-entry { transition: none !important; } }

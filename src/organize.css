@@ -1,0 +1,29 @@
+.dialog.organize-dialog { width: min(620px, 100%); }
+.organize-dialog .dialog-content { padding-top: 0; }
+.organize-description { color: var(--secondary); font-size: 13px; line-height: 1.65; }
+.organize-help { margin-top: 8px; color: var(--quiet); font-size: 12px; line-height: 1.6; }
+.organize-list { list-style: none; margin: 20px 0 14px; padding: 0; }
+.organize-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 70px; padding: 8px 6px; border-top: 1px solid var(--line); background: var(--paper); }
+.organize-row:last-child { border-bottom: 1px solid var(--line); }
+.organize-row.is-dragging { z-index: 3; outline: 1px solid var(--line-selected); background: var(--surface-selected); border-radius: 5px; }
+.organize-handle { cursor: grab; touch-action: none; }
+.organize-handle:active { cursor: grabbing; }
+.organize-row .project-avatar { width: 30px; height: 30px; border-radius: 5px; font-size: 11px; flex-shrink: 0; }
+.organize-item-label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.organize-item-label strong { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organize-item-label > span { font-size: 11px; color: var(--quiet); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organize-arrows { display: flex; gap: 2px; }
+.organize-arrows .icon-button { width: 32px; height: 36px; }
+.organize-position { width: 56px; min-height: 36px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.organize-footnote { color: var(--quiet); font-size: 11px; line-height: 1.6; }
+.organize-save-status { margin-right: auto; color: var(--quiet); font-size: 12px; }
+.organize-dialog .dialog-footer { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 540px) {
+  .organize-row { gap: 7px; padding-inline: 0; }
+  .organize-row > .project-avatar { display: none; }
+  .organize-handle { width: 30px; }
+  .organize-arrows .icon-button { width: 34px; height: 44px; }
+  .organize-position { width: 48px; min-height: 44px; }
+  .organize-save-status { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .organize-row { transition: none !important; } }

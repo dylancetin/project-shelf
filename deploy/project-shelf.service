@@ -1,0 +1,22 @@
+[Unit]
+Description=Project Shelf project and service dashboard
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/taytay/.t3-nightly/projects/dev-server-panel
+ExecStartPre=/home/taytay/.bun/bin/bun run build
+ExecStart=/home/taytay/.bun/bin/bun server/index.ts
+Environment=NODE_ENV=production
+Environment=PORT=4958
+Environment=HOST=0.0.0.0
+Environment=PATH=/home/taytay/.bun/bin:/home/taytay/.local/share/pnpm/bin:/home/taytay/.nvm/versions/node/v24.12.0/bin:/home/taytay/.local/go/bin:/home/taytay/.cargo/bin:/home/taytay/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=15
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

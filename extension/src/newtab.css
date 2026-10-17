@@ -1,0 +1,4 @@
+.extension-setup { max-width: 540px; margin: 0 auto; padding: 22vh 24px 50px; }
+.extension-setup img { display: block; margin-bottom: 26px; border-radius: 7px; }
+.extension-setup p { margin-top: 16px; color: var(--secondary); font-size: 14px; line-height: 1.7; }
+.extension-setup .button { margin-top: 26px; }
