@@ -12,6 +12,9 @@ import { scanRoots } from './scanner';
 import { openSearchDescription, searchRedirect } from './search';
 import { Store, type ProjectData } from './store';
 import { object, projectInput, settingsInput, text } from './validation';
+import { AgentServers } from './agent-servers';
+import type { AgentSupervisor } from './agent-supervisor';
+import { authorizeMcp, handleAgentMcp, mcpCredential } from './agent-mcp';
 
 const MAX_BODY = 5 * 1024 * 1024;
 const JSON_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -24,6 +27,7 @@ export interface AppOptions {
   bootstrap?: boolean;
   processOptions?: ProcessOptions;
   launchOptions?: LaunchOptions;
+  agentSupervisor?: AgentSupervisor;
 }
 
 export function json(data: unknown, status = 200): Response {
@@ -106,6 +110,8 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 export async function createApp(options: AppOptions) {
   const store = new Store(options.dbPath, options.initialSettings);
   const processes = new ProcessManager(options.processOptions);
+  const agentServers = new AgentServers(store, options.agentSupervisor);
+  const agentToken = mcpCredential(options.dbPath);
   let scanning: ReturnType<typeof scanRoots> | null = null;
   let closing = false;
   let closePromise: Promise<void> | null = null;
@@ -201,6 +207,14 @@ export async function createApp(options: AppOptions) {
   router.all('/opensearch.xml', () => { throw new ApiError(405, 'Method not allowed'); });
 
   router.get('/api/health', () => json({ ok: true }));
+  router.all('/mcp', async c => {
+    authorizeMcp(c.req.raw, agentToken, store.settings().hostnames);
+    if (c.req.method !== 'POST') return json({ error: 'Stateless MCP accepts POST only' }, 405);
+    return handleAgentMcp(c, agentServers);
+  });
+  router.get('/api/agent-servers', async () => json({ servers: await agentServers.list() }));
+  router.get('/api/agent-servers/:id/logs', async c => json({ logs: await agentServers.logs(c.req.param('id')) }));
+  router.delete('/api/agent-servers/:id', async c => json(await agentServers.delete(c.req.param('id'))));
   router.get('/api/extension/bridge', () => {
     // Inert same-origin document. Only the user's host-authorized extension
     // injects its isolated content script; this page exposes no message API.
@@ -347,7 +361,7 @@ export async function createApp(options: AppOptions) {
     return closePromise;
   }
 
-  return { fetch, close, store, processes };
+  return { fetch, close, store, processes, agentServers };
 }
 
 async function serveStatic(request: Request, staticDir?: string): Promise<Response> {

@@ -15,6 +15,7 @@ import { BangSearch, useBangSearch } from './BangSearch';
 import { BrowserBookmarks } from './BrowserBookmarks';
 import { useBookmarks } from './useBookmarks';
 import { shelfItemId, type ShelfColumn, type ShelfItemDragData } from './shelf-columns';
+import { AgentServers, useAgentServers } from './AgentServers';
 
 type Destination = { project: Project; url: string };
 type Layout = 'compact' | 'grid';
@@ -37,6 +38,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   defaultSearchEngine?: SearchEngine;
 }) {
   const bookmarks = useBookmarks();
+  const agentServers = useAgentServers();
   const available = useServerAvailable();
   const dragSnapshot = useRef<{ projects: Project[]; visible: string[] } | null>(null);
   const [query, setQuery] = useState('');
@@ -69,11 +71,13 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
       { id: 'projects', title: 'Projects', items: matches.filter(({ project }) => !project.favorite && project.kind === 'project') },
       { id: 'services', title: 'Services', items: matches.filter(({ project }) => !project.favorite && project.kind === 'service') },
       { id: 'favorites', title: 'Favorites', items: matches.filter(({ project }) => project.favorite) },
-    ].filter(group => group.items.length);
+    ].filter(group => group.items.length || group.id === 'projects');
   }, [destinations, query]);
   // Destination collections stay intact; only bookmark folders form extra columns.
   const columns = useMemo(() => groups.map(group => ({ ...group, id: `${group.id}-0` })), [groups]);
   const matches = groups.flatMap(group => group.items);
+  const matchingAgents = agentServers.servers.filter(server => query.trim().toLowerCase().split(/\s+/).every(word => `${server.name} ${server.cwd} ${server.url}`.toLowerCase().includes(word)));
+  const firstReadyAgent = agentServers.available && !agentServers.error ? matchingAgents.find(server => server.ready) : undefined;
   const bookmarkMatches = searchBookmarks(bookmarks.tree, query);
   const firstBookmark = bookmarkMatches.find(node => bookmarkUrl(node));
   const unconfigured = projects.some(project => !project.hidden && !projectUrl(project));
@@ -96,8 +100,8 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   }
   const shelfColumns: ShelfColumn[] = loading ? [] : columns.map(group => ({
     id: `shelf:${group.id}`, title: group.title,
-    actions: group.title !== 'Favorites' ? <button className="text-button" onClick={() => onOrganize(group.title === 'Services' ? 'service' : 'project')} aria-label={`Organize ${group.title.toLowerCase()}`}><ArrowsDownUp size={12} />Organize</button> : undefined,
-    content: <SortableContext items={group.items.map(item => shelfItemId(item.project.id))} strategy={verticalListSortingStrategy}><div className="launcher-grid">{group.items.map(destination => <DestinationLink key={destination.project.id} destination={destination} group={group.id.replace(/-\d+$/, '')} orderDisabled={Boolean(query) || ordering || !available} onPrepareDrag={() => prepareDrag(group.id.replace(/-\d+$/, ''))} busy={busy.has(destination.project.id)} launching={launching.has(destination.project.id)} onOpen={onOpen} onAction={mode => onAction(destination.project, mode)} onDetails={() => onDetails(destination.project.id)} />)}</div></SortableContext>,
+    actions: group.title !== 'Favorites' && group.items.length > 0 ? <button className="text-button" onClick={() => onOrganize(group.title === 'Services' ? 'service' : 'project')} aria-label={`Organize ${group.title.toLowerCase()}`}><ArrowsDownUp size={12} />Organize</button> : undefined,
+    content: <><SortableContext items={group.items.map(item => shelfItemId(item.project.id))} strategy={verticalListSortingStrategy}><div className="launcher-grid">{group.items.map(destination => <DestinationLink key={destination.project.id} destination={destination} group={group.id.replace(/-\d+$/, '')} orderDisabled={Boolean(query) || ordering || !available} onPrepareDrag={() => prepareDrag(group.id.replace(/-\d+$/, ''))} busy={busy.has(destination.project.id)} launching={launching.has(destination.project.id)} onOpen={onOpen} onAction={mode => onAction(destination.project, mode)} onDetails={() => onDetails(destination.project.id)} />)}</div></SortableContext>{group.id === 'projects-0' && <AgentServers state={agentServers} query={query} />}</>,
   }));
 
   return <div className={`launcher${layout === 'compact' ? ' launcher-compact' : ''}${bookmarks.provider ? ' launcher-with-bookmarks' : ''}`} data-layout={layout}>
@@ -108,6 +112,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
       const first = matches[0];
       if (first?.project.kind === 'project') onOpen(first.project, false);
       else if (first) window.location.assign(first.url);
+      else if (firstReadyAgent) window.location.assign(firstReadyAgent.url);
       else if (firstBookmark) window.location.assign(bookmarkUrl(firstBookmark));
     }}>
       <MagnifyingGlass size={17} weight="bold" aria-hidden="true" />
@@ -117,7 +122,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
     <p id="launcher-search-help" className="sr-only">Press slash to search. Press Enter to open the first result. Use a bang such as !g, !gh, !yt, or !w followed by a query to search the web directly.</p>
     <div className="sr-only" role="status">{bang ? bangResult ? `${bangResult.search ? 'Search' : 'Open'} ${bangResult.name}${bangResult.search ? ` for ${bangResult.search}` : ''}` : '' : loading ? 'Loading destinations' : `${matches.length} shelf destinations and ${bookmarkMatches.length} browser bookmarks${query ? ' found' : ''}`}</div>
 
-    {bang ? <BangSearch bang={bang} result={bangResult} loading={bangLoading} error={bangError} onRetry={retryBang} onSelect={value => { changeQuery(value); searchRef.current?.focus(); }} /> : <BrowserBookmarks bookmarks={bookmarks} query={query} shelfColumns={shelfColumns} onReorderShelfItem={reorderItem}>{loading ? <div className="launcher-grid launcher-loading" aria-label="Loading destinations" aria-busy="true">{Array.from({ length: 10 }, (_, index) => <div className="launcher-placeholder" key={index}><span /><i /></div>)}</div> : groups.length || (query && bookmarkMatches.length) ? null : <div className="launcher-empty">
+    {bang ? <BangSearch bang={bang} result={bangResult} loading={bangLoading} error={bangError} onRetry={retryBang} onSelect={value => { changeQuery(value); searchRef.current?.focus(); }} /> : <BrowserBookmarks bookmarks={bookmarks} query={query} shelfColumns={shelfColumns} onReorderShelfItem={reorderItem}>{loading ? <div className="launcher-grid launcher-loading" aria-label="Loading destinations" aria-busy="true">{Array.from({ length: 10 }, (_, index) => <div className="launcher-placeholder" key={index}><span /><i /></div>)}</div> : matches.length || matchingAgents.length || (query && bookmarkMatches.length) ? null : <div className="launcher-empty">
       <h2>{query ? 'No matching destinations.' : failed ? 'Your shelf is unavailable.' : allHidden ? 'All destinations are hidden.' : projects.length ? 'No addresses configured.' : 'Your shelf is empty.'}</h2>
       <p>{query ? 'Try a different name or address.' : failed ? 'Check the connection and try again.' : allHidden ? 'Show destinations again from the Hidden collection in Manage.' : 'Add a project address or a service in Manage.'}</p>
       {query ? <button className="text-button" onClick={() => { setQuery(''); searchRef.current?.focus(); }}>Clear search <ArrowRight size={14} /></button> : !failed && <a className="button" href="#manage">Manage destinations <ArrowRight size={14} /></a>}

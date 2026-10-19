@@ -194,3 +194,7 @@ Then open **https://beelinkk.tail750ac6.ts.net/** while connected to Tailscale. 
 - The shelf reconnects automatically on a three-second visible-page poll and on returning online/to the tab. Unsaved form drafts are preserved. Successful changes refresh the saved snapshot, including hiding or deleting entries.
 - A new production build prompts **Reload to update**; it does not forcibly reload an open form. The previous installed app stays available until the new version is fully downloaded. PWA caching is disabled during `bun dev`.
 - Saved data is origin-specific: HTTP, HTTPS, different hostnames, and ports have separate storage. It contains project metadata and configured commands, not logs or live process state. Use a trusted browser/device; clearing site data or browser storage eviction removes offline access. Custom remote/project logos may fall back to monograms offline. When browser storage is blocked/full, the live app still works but cannot refresh its offline snapshot.
+
+## Agent preview servers
+
+Agents can start manually retained previews using the authenticated [Agent Servers MCP](docs/agent-servers.md). Runs appear beneath Projects on Home and in the extension, with Visit, Logs, and Stop. They survive panel restarts through independent user-systemd units; existing registered projects retain their normal lifecycle. The repository-local required-workflow skill is installed at `/home/taytay/.agents/skills/project-shelf-agent-servers`.

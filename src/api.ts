@@ -1,5 +1,6 @@
 import type { Project, ProjectKind, RunMode, Settings, ScanResult, LogoFile, LogLine } from '../shared/types';
 import { shelfPlatform } from './platform';
+import type { AgentServer } from '../shared/agent-servers';
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const options: RequestInit = {
@@ -20,6 +21,9 @@ const body = (data: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
 const idPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
 export const api = {
+  agentServers: (signal?: AbortSignal) => request<{ servers: AgentServer[] }>('/agent-servers', { signal }),
+  stopAgentServer: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  agentLogs: (id: string, signal?: AbortSignal) => request<{ logs: string }>(`/agent-servers/${encodeURIComponent(id)}/logs`, { signal }),
   projects: (signal?: AbortSignal) => request<{ projects: Project[] }>('/projects', { signal }),
   reorder: (kind: ProjectKind, ids: string[], previousIds: string[]) => request<{ projects: Project[] }>('/projects/reorder', body({ kind, ids, previousIds })),
   settings: (signal?: AbortSignal) => request<{ settings: Settings }>('/settings', { signal }),

@@ -10,7 +10,7 @@ export function validApiRequest(value: unknown): value is BridgeRequest {
   return item.channel === BRIDGE_CHANNEL && item.type === 'request'
     && typeof item.id === 'string' && /^[a-f0-9-]{36}$/.test(item.id)
     && typeof item.path === 'string'
-    && /^\/(?:health|settings|scan|bookmarks\/import|projects(?:\/[a-zA-Z0-9_-]+(?:\/(?:launch|start|stop|logs|duplicate|logos))?)?)$/.test(item.path)
+    && /^\/(?:health|settings|scan|bookmarks\/import|agent-servers(?:\/[a-f0-9-]+(?:\/logs)?)?|projects(?:\/[a-zA-Z0-9_-]+(?:\/(?:launch|start|stop|logs|duplicate|logos))?)?)$/.test(item.path)
     && typeof item.method === 'string' && ['GET', 'POST', 'PATCH', 'DELETE'].includes(item.method)
     && (item.body === undefined || (typeof item.body === 'string' && item.body.length <= 5 * 1024 * 1024));
 }

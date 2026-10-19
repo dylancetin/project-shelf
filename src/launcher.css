@@ -131,3 +131,20 @@
   .launcher-actions .icon-button:disabled { opacity: .4; }
 }
 @media (prefers-reduced-motion: reduce) { .launcher-entry { transition: none !important; } }
+.agent-servers { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
+.agent-servers h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.agent-servers h3 span { color: var(--quiet); font-size: 12px; font-weight: 400; margin-left: 5px; }
+.agent-server { padding: 11px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.agent-server-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-server-label { display: grid; gap: 4px; min-width: 0; }
+.agent-server-label strong { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.agent-server-label small, .agent-status, .agent-message, .agent-log-details { color: var(--quiet); font-size: 11px; line-height: 1.6; }
+.agent-status { text-align: right; }
+.agent-status.is-ready { color: var(--green); }
+.agent-server-actions { display: flex; align-items: center; gap: 16px; margin-top: 9px; }
+.agent-server-actions .text-button { font-size: 12px; }
+.agent-unavailable { color: var(--quiet); opacity: .6; font-size: 12px; }
+.agent-message { margin: 6px 0; }
+.agent-log-details { margin-top: 10px; overflow-wrap: anywhere; }
+.agent-log-details code { white-space: pre-wrap; }
+.agent-log-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-subtle); padding: 10px; border-radius: 6px; font-size: 11px; }
