@@ -1,6 +1,6 @@
 # Project Shelf
 
-A compact start page for projects and self-hosted services, with a separate management view. React + Vite on the frontend, a Bun HTTP server and `bun:sqlite` behind it.
+A compact start page for projects and self-hosted services, with a separate management view. React + Vite on the frontend, Hono running on Bun and `bun:sqlite` behind it.
 
 ## Run
 
@@ -19,6 +19,8 @@ Open any of:
 - https://panel.tail750ac6.ts.net/ (when the HTTPS reverse proxy is configured)
 
 The randomly selected default port is **4958**. Set `PORT` to change it. Production serves the UI and API from the same Bun process. For UI development, `bun dev` runs Vite on 4958 and the backend on loopback port 4959 (override with `API_PORT`).
+
+Hono handles routes, mutation-origin middleware, and JSON error responses in `server/app.ts`. Bun still owns the HTTP listener and shutdown lifecycle. Bounded JSON parsing and confined static/logo serving retain their existing safeguards; the API contract, database, and deployment commands are unchanged.
 
 ## Use
 

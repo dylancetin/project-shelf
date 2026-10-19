@@ -9,7 +9,7 @@ Build on the existing application rather than replacing it with a demo. Display 
 ## Stack and commands
 
 - **Runtime/package manager:** Bun. Use `bun install`; commit `bun.lock` when dependencies change.
-- **Backend:** Bun HTTP server, TypeScript, built-in `bun:sqlite`.
+- **Backend:** Hono on Bun HTTP server, TypeScript, built-in `bun:sqlite`.
 - **Frontend:** React, Vite, plain CSS, `@phosphor-icons/react`.
 - **Default application port:** `4958`. Keep this stable unless the task explicitly changes it.
 
@@ -33,7 +33,7 @@ The smoke script accepts a different base URL: `bun scripts/smoke.ts http://127.
 | `shared/types.ts` | Shared project, runtime, settings, logo, and log contracts |
 | `shared/bangs.ts`, `shared/search.ts`, `server/search.ts` | Shared bang resolution, selectable default search providers (DuckDuckGo initially), and browser search redirects/OpenSearch discovery |
 | `server/index.ts` | Server entry point, startup, signal handling |
-| `server/app.ts` | HTTP routes, bootstrap, request coordination, static serving |
+| `server/app.ts` | Hono routes/middleware, bootstrap, request coordination, confined static serving |
 | `server/store.ts` | SQLite storage and settings defaults |
 | `server/processes.ts` | Process groups, lifecycle state, log buffers, shutdown |
 | `server/launch.ts` | Local HTTP readiness checks before project navigation |
