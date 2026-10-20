@@ -93,7 +93,7 @@ describe('agent preview records', () => {
   });
 });
 
-test('MCP authenticated stateless official protocol, exact two mutations, concurrent request IDs and resource logs', async () => {
+test('MCP authenticated stateless official protocol, tool discovery, concurrent request IDs and resource logs', async () => {
   const root = await fixture(); const supervisor = new MockSupervisor();
   const app = await createApp({ dbPath: `${root}/panel.sqlite`, bootstrap: false, agentSupervisor: supervisor });
   try {
@@ -107,7 +107,7 @@ test('MCP authenticated stateless official protocol, exact two mutations, concur
     const init = await call('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
     expect(init.status).toBe(200); expect((await init.json()).result.serverInfo.name).toBe('project-shelf-agent-servers');
     const listed = await (await call('tools/list')).json();
-    expect(listed.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(['add', 'delete']);
+    expect(listed.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list']);
     const [first, second] = await Promise.all(['one', 'two'].map(key => call('tools/call', { name: 'add', arguments: { name: key, cwd: root, command: 'fixture', idempotencyKey: key } }).then(response => response.json())));
     const a = JSON.parse(first.result.content[0].text); const b = JSON.parse(second.result.content[0].text);
     expect(a.name).toBe('one'); expect(b.name).toBe('two'); expect(a.port).not.toBe(b.port);
@@ -127,7 +127,7 @@ test('official MCP HTTP client initializes, calls tools and reads resources', as
   try {
     const { bearerToken } = await Bun.file(`${root}/panel.sqlite.mcp.json`).json();
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${http.port}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${bearerToken}` } } }));
-    expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual(['add', 'delete']);
+    expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list']);
     const result = await client.callTool({ name: 'add', arguments: { name: 'Official client fixture', cwd: root, command: 'fixture' } });
     expect(result.isError).not.toBe(true);
     const resource = await client.readResource({ uri: 'shelf://agent-servers' });

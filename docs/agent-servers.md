@@ -1,8 +1,18 @@
 # Agent Servers MCP
 
-Project Shelf exposes **exactly two mutation tools**, `add` and `delete` (stop then remove), at `http://beelinkk:4958/mcp`, using `@hono/mcp` and the official MCP SDK. See [the installed agent skill](../skills/project-shelf-agent-servers/SKILL.md) for client configuration, inputs, outputs, examples, retry behavior, and required preview workflow.
+Project Shelf exposes preview-server and registered-project tools at `http://beelinkk:4958/mcp`, using `@hono/mcp` and the official MCP SDK. See [the installed agent skill](../skills/project-shelf-agent-servers/SKILL.md) for client configuration, inputs, outputs, examples, retry behavior, and required preview workflow.
 
-The credential is generated on startup at `${PANEL_DB_PATH}.mcp.json` (default `data/panel.sqlite.mcp.json`, mode 0600). This ignored local file contains `bearerToken`; load it into a local MCP client Authorization header, never commit or share it. To rotate, stop the panel, remove **only this credential file**, restart, and update clients. No global configuration is changed. Requests require a configured Host, no cross-origin browser requests, and a matching bearer token. The same-origin UI may list/read logs and stop runs, but cannot launch arbitrary commands. No unauthenticated LAN launch API is added. MCP resources provide authenticated read access for agent clients.
+| Tool | Inputs | Result / behavior |
+| --- | --- | --- |
+| `add` | `name`, `cwd`, `command`, optional `idempotencyKey` | Start or reuse an independently retained agent preview. |
+| `delete` | `id` | Stop the agent preview's process tree, then remove its registration. |
+| `projects_list` | `{}` | `{ projects: Project[] }`, matching `/api/projects`, including service links, hidden entries, saved commands, and current managed runtime state. |
+| `project_run` | `id`, optional `mode` (`dev`, `build`, `prod`; defaults to `dev`) | `{ project: Project }`; start the registered project's saved command through the same process manager and mutation lock as the dashboard. |
+| `project_logs` | `id` | `{ logs: LogLine[] }`, matching `/api/projects/:id/logs`, with line IDs, timestamps, and stdout/stderr/system streams. |
+
+Use an ID from `projects_list` for the project tools. `project_run` returns immediately after starting; poll `projects_list` and `project_logs` for completion or failure. `build` runs only the build command; `prod` first runs the configured build command, and a failed build prevents production from starting. Services, missing commands, unknown IDs, and already-active projects return MCP tool errors. Stop existing runs through the dashboard before rerunning. Project runs use their configured port and stop on panel shutdown; their in-memory logs default to the last 500 lines of at most 4000 characters each and are cleared on restart. An unstarted registration has an empty log array. Listing and reading logs never start commands or scan directories.
+
+The credential is generated on startup at `${PANEL_DB_PATH}.mcp.json` (default `data/panel.sqlite.mcp.json`, mode 0600). This ignored local file contains `bearerToken`; load it into a local MCP client Authorization header, never commit or share it. To rotate, stop the panel, remove **only this credential file**, restart, and update clients. No global configuration is changed. Requests require a configured Host, no cross-origin browser requests, and a matching bearer token. For agent previews, the same-origin UI may list/read logs and stop runs, but cannot launch arbitrary commands. No unauthenticated agent-preview launch API is added. MCP resources provide authenticated read access for agent clients.
 
 ## Lifecycle and ownership
 

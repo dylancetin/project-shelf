@@ -5,8 +5,15 @@ import type { Context } from 'hono';
 import { StreamableHTTPTransport } from '@hono/mcp';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import type { LogLine, Project, RunMode } from '../shared/types';
 import type { AgentServers } from './agent-servers';
 import { ApiError } from './errors';
+
+interface McpProjects {
+  list(): Project[];
+  run(id: string, mode: RunMode): Promise<Project>;
+  logs(id: string): LogLine[];
+}
 
 export function mcpCredential(dbPath: string): string {
   // Isolated in-memory test apps do not create host credentials.
@@ -35,10 +42,10 @@ export function authorizeMcp(request: Request, token: string, hostnames: string[
   if (Buffer.byteLength(supplied) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) throw new ApiError(401, 'MCP requires the local bearer credential');
 }
 
-export async function handleAgentMcp(c: Context, servers: AgentServers) {
+export async function handleAgentMcp(c: Context, servers: AgentServers, projects: McpProjects) {
   // A separate stateless server AND transport per request: two clients can use
   // the same JSON-RPC request ID without sharing pending-response maps.
-  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.0.0' });
+  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.1.0' });
   const result = async (operation: () => Promise<unknown>) => {
     try { return { content: [{ type: 'text' as const, text: JSON.stringify(await operation(), null, 2) }] }; }
     catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }] }; }
@@ -51,6 +58,27 @@ export async function handleAgentMcp(c: Context, servers: AgentServers) {
     description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Manual lifetime: only delete when asked or when this preview is no longer wanted. A failed stop retains the record. Repeated deletion is safe.',
     inputSchema: { id: z.string().uuid() },
   }, ({ id }) => result(() => servers.delete(id)));
+  server.registerTool('projects_list', {
+    title: 'Projects list',
+    description: 'List all registered Project Shelf projects and service links, including hidden entries, saved commands, URLs, and actual managed runtime state. Use the returned project ID with project_run or project_logs. Does not scan directories or start commands.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, () => result(async () => ({ projects: projects.list() })));
+  server.registerTool('project_run', {
+    title: 'Project run',
+    description: 'Start a registered project using its saved command and configured port. Defaults to dev; build runs only the build command; prod builds first when configured and starts production only if the build succeeds. Returns the project and current runtime immediately, without waiting for completion or HTTP readiness. Inspect projects_list and project_logs for progress. Rejects service links and already-active projects; stop active commands through Project Shelf before rerunning. These runs stop when the panel shuts down.',
+    inputSchema: {
+      id: z.string().min(1).max(200).describe('Project ID returned by projects_list'),
+      mode: z.enum(['dev', 'build', 'prod']).default('dev'),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false },
+  }, ({ id, mode }) => result(async () => ({ project: await projects.run(id, mode) })));
+  server.registerTool('project_logs', {
+    title: 'Project logs',
+    description: 'Read retained logs for a registered project, with line IDs, timestamps, and separate stdout/stderr/system streams. Returns an empty array before the first run. The buffer defaults to the last 500 lines, up to 4000 characters each, and is cleared when the panel restarts. Use an ID from projects_list, not an agent-server preview ID.',
+    inputSchema: { id: z.string().min(1).max(200).describe('Project ID returned by projects_list') },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, ({ id }) => result(async () => ({ logs: projects.logs(id) })));
   server.registerResource('agent-servers', 'shelf://agent-servers', { description: 'Current previews, readiness, URLs, IDs and log access', mimeType: 'application/json' }, async uri => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await servers.list()) }] }));
   server.registerResource('agent-server-logs', new ResourceTemplate('shelf://agent-servers/{id}/logs', { list: undefined }), { mimeType: 'text/plain', description: 'Last 150 journal lines (up to 64 KiB)' }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: await servers.logs(String(variables.id)) }] }));
   const transport = new StreamableHTTPTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

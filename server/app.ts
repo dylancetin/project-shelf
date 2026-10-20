@@ -210,7 +210,18 @@ export async function createApp(options: AppOptions) {
   router.all('/mcp', async c => {
     authorizeMcp(c.req.raw, agentToken, store.settings().hostnames);
     if (c.req.method !== 'POST') return json({ error: 'Stateless MCP accepts POST only' }, 405);
-    return handleAgentMcp(c, agentServers);
+    return handleAgentMcp(c, agentServers, {
+      list: () => store.list().map(project => processes.project(project)),
+      // Share the HTTP mutation lock so a run cannot race project edits/deletion.
+      run: (id, mode) => locked(id, async () => {
+        if (closing) throw new ApiError(503, 'The server is shutting down');
+        return processes.start(requireProject(id), mode);
+      }),
+      logs: id => {
+        requireProject(id);
+        return processes.logs(id);
+      },
+    });
   });
   router.get('/api/agent-servers', async () => json({ servers: await agentServers.list() }));
   router.get('/api/agent-servers/:id/logs', async c => json({ logs: await agentServers.logs(c.req.param('id')) }));

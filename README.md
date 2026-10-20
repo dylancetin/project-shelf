@@ -197,4 +197,4 @@ Then open **https://beelinkk.tail750ac6.ts.net/** while connected to Tailscale. 
 
 ## Agent preview servers
 
-Agents can start manually retained previews using the authenticated [Agent Servers MCP](docs/agent-servers.md). Runs appear beneath Projects on Home and in the extension, with Visit, Logs, and Stop. They survive panel restarts through independent user-systemd units; existing registered projects retain their normal lifecycle. The repository-local required-workflow skill is installed at `/home/taytay/.agents/skills/project-shelf-agent-servers`.
+Agents can start manually retained previews using the authenticated [Agent Servers MCP](docs/agent-servers.md). Runs appear beneath Projects on Home and in the extension, with Visit, Logs, and Stop. They survive panel restarts through independent user-systemd units; existing registered projects retain their normal lifecycle. The same MCP provides `projects_list`, `project_run` (`dev`, `build`, or `prod`), and `project_logs` for registered projects. The repository-local required-workflow skill is installed at `/home/taytay/.agents/skills/project-shelf-agent-servers`.

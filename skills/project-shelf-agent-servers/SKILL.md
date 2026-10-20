@@ -37,9 +37,16 @@ set +x
 export PROJECT_SHELF_MCP_TOKEN="$(bun -e 'const c = await Bun.file("/home/taytay/.t3-nightly/projects/dev-server-panel/data/panel.sqlite.mcp.json").json(); process.stdout.write(c.bearerToken)')"
 ```
 
-Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`/`delete` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
+Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`, `delete`, `projects_list`, `project_run`, and `project_logs` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
 
 The endpoint is stateless: each request gets an independent MCP server/transport. No accounts, OAuth, or CLI is required. A `401` means the configured bearer credential is missing/wrong; a `403` means Host/Origin is not allowed.
+
+## Registered projects
+
+- Call **`projects_list`** with `{}` to read registered projects and service links, including hidden entries, saved commands, URLs, and actual runtime state. Returns `{ "projects": [...] }` without scanning or launching anything.
+- Call **`project_run`** with `{ "id": "<project ID>", "mode": "dev" }` to run a registered project's saved command. `mode` defaults to `dev`; `build` runs only the build command; `prod` builds first if configured and starts production only after a successful build. Returns `{ "project": {...} }` immediately; it does not wait for HTTP readiness or build completion. Services and already-active projects are rejected. Stop active runs in Project Shelf before rerunning.
+- Call **`project_logs`** with `{ "id": "<project ID>" }` to read `{ "logs": [...] }` with line IDs, timestamps, and stdout/stderr/system streams. Poll this and `projects_list` for progress or failures. Logs default to the last 500 lines (4000 characters per line) and are empty before the first run.
+- Use the registration ID from `projects_list`, not an agent-preview ID. Registered projects use their configured ports and stop on panel shutdown; their logs are in memory and clear on restart. Use `add` below for independently retained worktree previews.
 
 ## Start or reuse
 
