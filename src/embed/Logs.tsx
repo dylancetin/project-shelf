@@ -59,7 +59,7 @@ export function Logs({ name, entries, error, active, mark, onMark, onRefresh }: 
   return <div className="embed-logs">
     <div className="embed-log-tools">
       <label className="embed-search"><MagnifyingGlass size={14} aria-hidden="true" /><span className="sr-only">Filter log lines</span>
-        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter lines" spellCheck={false} />
+        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter" spellCheck={false} />
         {query && <IconButton label="Clear filter" onClick={() => setQuery('')}><X size={13} aria-hidden="true" /></IconButton>}
       </label>
       <div className="embed-streams" role="radiogroup" aria-label="Output stream">

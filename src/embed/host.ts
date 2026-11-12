@@ -44,6 +44,8 @@ export interface HostSettings {
   settings: BubbleSettings;
   /** Tells the host what size to give the frame. */
   setLayout: (layout: EmbedLayout) => void;
+  /** Subscribes to the host's request to collapse an open panel; returns the unsubscribe function. */
+  onCollapse: (listener: () => void) => () => void;
   update: (patch: Partial<BubbleSettings>) => void;
   resetAppearance: () => void;
   hideOrigin: (origin: string) => void;
@@ -61,6 +63,7 @@ export function useEmbedHost(): HostSettings {
   const sendTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const layoutRef = useRef<EmbedLayout>('hidden');
   const hostSeen = useRef(false);
+  const collapseListeners = useRef(new Set<() => void>());
 
   const flush = useCallback(() => {
     if (sendTimer.current === undefined) return;
@@ -79,6 +82,7 @@ export function useEmbedHost(): HostSettings {
       if (!message) return;
       // The first answer shows the host is listening; it may have missed the layout sent before that.
       if (!hostSeen.current) { hostSeen.current = true; post({ type: 'layout', layout: layoutRef.current }); }
+      if (message.type === 'collapse') { for (const listener of collapseListeners.current) listener(); return; }
       if (sendTimer.current !== undefined || Date.now() - lastEdit.current < ECHO_QUIET_MS) return;
       latest.current = message.settings;
       setSettings(message.settings);
@@ -95,6 +99,11 @@ export function useEmbedHost(): HostSettings {
     post({ type: 'layout', layout });
   }, []);
 
+  const onCollapse = useCallback((listener: () => void) => {
+    collapseListeners.current.add(listener);
+    return () => { collapseListeners.current.delete(listener); };
+  }, []);
+
   const update = useCallback((patch: Partial<BubbleSettings>) => {
     const next = parseBubbleSettings({ ...latest.current, ...patch });
     latest.current = next;
@@ -108,7 +117,7 @@ export function useEmbedHost(): HostSettings {
   const resetAppearance = useCallback(() => update({ ...DEFAULT_BUBBLE_SETTINGS, hiddenOrigins: latest.current.hiddenOrigins }), [update]);
   const hideOrigin = useCallback((origin: string) => update({ hiddenOrigins: [...new Set([...latest.current.hiddenOrigins, origin])] }), [update]);
   const showOrigin = useCallback((origin: string) => update({ hiddenOrigins: latest.current.hiddenOrigins.filter(item => item !== origin) }), [update]);
-  return { settings, setLayout, update, resetAppearance, hideOrigin, showOrigin };
+  return { settings, setLayout, onCollapse, update, resetAppearance, hideOrigin, showOrigin };
 }
 
 const SETTLE_TIMEOUT_MS = 600;

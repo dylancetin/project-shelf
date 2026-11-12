@@ -65,13 +65,19 @@ describe('bubble settings', () => {
 describe('postMessage contract', () => {
   const toEmbed = { source: 'project-shelf-host', type: 'settings', settings: custom };
 
-  test('host to embed accepts exactly the settings message and normalizes its settings', () => {
+  test('host to embed accepts the settings message and the collapse request, and normalizes the settings', () => {
     expect<unknown>(parseHostToEmbedMessage(toEmbed)).toEqual(toEmbed);
     expect<unknown>(parseHostToEmbedMessage({ ...toEmbed, extra: 1, settings: { ...custom, idleOpacity: 0, offsetX: 1e9, corner: 'x' } }))
       .toEqual({ ...toEmbed, settings: { ...custom, idleOpacity: 0.3, offsetX: 400, corner: 'bottom-right' } });
     for (const bad of [undefined, null, 'settings', 7, [], [toEmbed], {}, { ...toEmbed, source: 'project-shelf-embed' }, { ...toEmbed, source: undefined },
       { ...toEmbed, type: 'layout' }, { ...toEmbed, type: undefined }, { source: toEmbed.source, type: toEmbed.type },
       { ...toEmbed, settings: null }, { ...toEmbed, settings: 'dark' }, { ...toEmbed, settings: [custom] }, { ...toEmbed, settings: 5 }]) {
+      expect<unknown>(parseHostToEmbedMessage(bad)).toBeNull();
+    }
+    const collapse = { source: 'project-shelf-host', type: 'collapse' };
+    expect<unknown>(parseHostToEmbedMessage(collapse)).toEqual(collapse);
+    expect<unknown>(parseHostToEmbedMessage({ ...collapse, extra: 1, settings: custom })).toEqual(collapse);
+    for (const bad of [{ ...collapse, source: 'project-shelf-embed' }, { ...collapse, source: undefined }, { ...collapse, type: 'COLLAPSE' }, { ...collapse, type: 'close' }]) {
       expect<unknown>(parseHostToEmbedMessage(bad)).toBeNull();
     }
   });
