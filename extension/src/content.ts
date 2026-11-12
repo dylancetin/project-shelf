@@ -65,6 +65,13 @@ const TAKEOVER = 'project-shelf-bubble-takeover';
     } else void save(message.settings);
   }
 
+  // A press inside the frame is delivered to the framed document only, so any press this page sees is outside the panel.
+  function onPagePointerDown() {
+    if (layout !== 'panel' || !panel) return;
+    const message: HostToEmbedMessage = { source: 'project-shelf-host', type: 'collapse' };
+    frame?.contentWindow?.postMessage(message, panel.origin);
+  }
+
   const onResize = () => { resizeFrame ||= requestAnimationFrame(() => { resizeFrame = 0; place(); }); };
   const onEnter = () => { pointerOver = true; place(); };
   const onLeave = () => { pointerOver = false; place(); };
@@ -87,6 +94,7 @@ const TAKEOVER = 'project-shelf-bubble-takeover';
     host.attachShadow({ mode: 'closed' }).append(frame);
     window.addEventListener('message', onMessage);
     window.addEventListener('resize', onResize);
+    document.addEventListener('pointerdown', onPagePointerDown, true);
     host.addEventListener('pointerenter', onEnter);
     host.addEventListener('pointerleave', onLeave);
     // Frameworks that rebuild <html>'s children must not take the bubble with them.
@@ -100,6 +108,7 @@ const TAKEOVER = 'project-shelf-bubble-takeover';
     observer?.disconnect(); observer = null;
     window.removeEventListener('message', onMessage);
     window.removeEventListener('resize', onResize);
+    document.removeEventListener('pointerdown', onPagePointerDown, true);
     host?.remove(); host = null; frame = null;
     layout = 'hidden'; ready = false; posted = ''; pointerOver = false;
   }

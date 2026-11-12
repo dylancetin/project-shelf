@@ -84,6 +84,10 @@ export function EmbedApp({ surface, pageUrl }: EmbedParams) {
 
   useEffect(() => host.setLayout(layout), [host.setLayout, layout]);
   useEffect(() => { if (screen.kind !== 'controls' && view.kind !== 'bubble') setView({ kind: 'bubble' }); }, [screen.kind, view.kind]);
+  // A press elsewhere on the host page closes the panel. Unlike Escape or the close button it leaves focus where the user put it.
+  useEffect(() => surface === 'bubble'
+    ? host.onCollapse(() => setView(current => current.kind === 'bubble' ? current : { kind: 'bubble' }))
+    : undefined, [surface, host.onCollapse]);
 
   // Output. Projects report line ids and streams, so only they can count errors for the badge.
   const project = selected?.kind === 'project' ? selected.project : null;

@@ -76,7 +76,10 @@ export type EmbedSurface = 'bubble' | 'popup';
 /** What the framed page asks its host to render: nothing, the collapsed bubble, or the expanded panel. */
 export type EmbedLayout = 'hidden' | 'bubble' | 'panel';
 
-export type HostToEmbedMessage = { source: 'project-shelf-host'; type: 'settings'; settings: BubbleSettings };
+export type HostToEmbedMessage =
+  | { source: 'project-shelf-host'; type: 'settings'; settings: BubbleSettings }
+  /** The user pressed somewhere on the host page outside the frame: an open panel goes back to the bubble. */
+  | { source: 'project-shelf-host'; type: 'collapse' };
 export type EmbedToHostMessage =
   | { source: 'project-shelf-embed'; type: 'ready' }
   | { source: 'project-shelf-embed'; type: 'layout'; layout: EmbedLayout }
@@ -85,8 +88,10 @@ export type EmbedToHostMessage =
 // postMessage payloads are untrusted until parsed here. Hosts and the embed must also check
 // event.origin and event.source; these functions only validate the payload shape.
 export function parseHostToEmbedMessage(data: unknown): HostToEmbedMessage | null {
-  if (!isRecord(data) || data.source !== 'project-shelf-host' || data.type !== 'settings' || !isRecord(data.settings)) return null;
-  return { source: 'project-shelf-host', type: 'settings', settings: parseBubbleSettings(data.settings) };
+  if (!isRecord(data) || data.source !== 'project-shelf-host') return null;
+  if (data.type === 'collapse') return { source: 'project-shelf-host', type: 'collapse' };
+  if (data.type === 'settings' && isRecord(data.settings)) return { source: 'project-shelf-host', type: 'settings', settings: parseBubbleSettings(data.settings) };
+  return null;
 }
 
 export function parseEmbedToHostMessage(data: unknown): EmbedToHostMessage | null {
