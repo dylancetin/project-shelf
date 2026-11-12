@@ -1,7 +1,7 @@
 import { isIP } from 'node:net';
-import { DEFAULT_HOSTNAMES, Store } from './store';
+import { DEFAULT_HOSTNAMES, serviceHostname } from '../shared/hostnames';
+import type { Store } from './store';
 import { canonicalUrl } from './validation';
-import { serviceHostname } from './hostnames';
 
 export interface Bookmark { name: string; url: string }
 

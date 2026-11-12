@@ -4,7 +4,7 @@ import { isSearchEngine } from '../shared/search';
 import { ApiError } from './errors';
 import { absolutePath, canonicalDirectory, safeRelative } from './paths';
 import type { ProjectData } from './store';
-import { serviceHostname } from './hostnames';
+import { serviceHostname } from '../shared/hostnames';
 
 export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'Expected a JSON object');

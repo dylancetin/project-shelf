@@ -41,6 +41,8 @@ The smoke script accepts a different base URL: `bun scripts/smoke.ts http://127.
 | `server/scanner.ts` | Recursive discovery and command/port inference |
 | `server/paths.ts`, `server/logos.ts` | Filesystem boundaries, copying, image discovery/serving |
 | `server/bookmarks.ts`, `server/validation.ts` | Bookmark parsing and request validation |
+| `shared/hostnames.ts`, `shared/runtime-targets.ts` | Server alias set (built-in, Settings, loopback) and the pure resolver that maps a browser URL to the registered projects/agent previews serving it (`GET /api/runtime-targets`) |
+| `shared/embed.ts`, `server/embed.ts` | Contract between `/embed.html` and its frame host (settings, `postMessage` parsers, URL helpers) and the `frame-ancestors` policy the server sets on `/embed.html` |
 | `server/agent-servers.ts`, `server/agent-mcp.ts`, `server/t3-threads.ts` | Agent preview units, MCP tools, and read-only T3 Code thread ownership/auto-removal |
 | `src/api.ts` | Browser API client, instance URL construction, shared UI helpers |
 | `src/App.tsx` | Dashboard, navigation, filtering, project cards, runtime polling |
@@ -76,6 +78,8 @@ The checked-in systemd unit uses absolute paths for this machine, including Bun,
 - Each managed command has an isolated process group. Stop, deletion, and server shutdown must clean up descendants, with bounded graceful termination and escalation. Do not kill processes merely because they occupy a port.
 - Do not leak the panel's own `PORT`, `API_PORT`, or database configuration into managed projects. Honor each project's configured port and run mode. Explicit command-level environment assignments must still work.
 - A Cloudflare quick tunnel never outlives the project command or agent preview it exposes: process exit, Stop, deletion, and panel shutdown close it. Tunnels run as their own process groups and are only opened on an explicit request.
+- Restart (`POST /api/projects/:id/restart`, `POST /api/agent-servers/:id/restart`) takes the same lock as start/stop, waits for the old process group to be gone, and then starts. Project restart without a `mode` keeps `prod` for a running or failed production run and otherwise uses `dev`.
+- `/embed.html` is the only page meant to be framed. The server sets its `frame-ancestors` to `'self'`, `chrome-extension:`, every server alias on any port, and registered project addresses; it stays `no-cache`. Never loosen `validateMutationOrigin` or add CORS for it: the framed page is panel-origin, so its API calls are same-origin. Other pages carry no framing header.
 - Bound retained log output and preserve stdout/stderr distinction. Runtime status must reflect actual managed process state, not URL reachability.
 - Registration deletion removes a database entry, **never project files**. File duplication must not overwrite an existing destination; omit dependencies, Git history, and generated/cache folders.
 - Enforce filesystem containment and symlink boundaries for logos and static files. A supplied image path must not expose arbitrary host files.

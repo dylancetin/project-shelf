@@ -2,13 +2,13 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Project, ProjectKind, Settings } from '../shared/types';
+import { DEFAULT_HOSTNAMES } from '../shared/hostnames';
 import { sameMembers } from '../shared/ordering';
 import { DEFAULT_SEARCH_ENGINE, isSearchEngine } from '../shared/search';
 import { ApiError } from './errors';
 
 export type ProjectData = Omit<Project, 'runtime'>;
 export const DEFAULT_ROOTS = ['/home/taytay/.t3/projects', '/home/taytay/.t3-nightly/projects', '/home/taytay/workspace'];
-export const DEFAULT_HOSTNAMES = ['beelinkk', '192.168.1.50', 'beelinkk.tail750ac6.ts.net', '100.119.176.63'];
 
 function readProject(row: { data: string }): ProjectData {
   // Existing registrations predate visibility preferences and remain visible.

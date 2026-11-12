@@ -82,8 +82,9 @@ export class AgentServers {
       url: `http://${this.store.settings().defaultHostname || this.machine.name}:${record.port}/`, logsUrl: `/api/agent-servers/${record.id}/logs`,
       thread: this.threadView(record, threads), tunnel: this.tunnels?.get(agentTunnel(record.id)) ?? null };
   }
-  async list() {
-    const records = this.records().map(record => this.require(record.id));
+  /** All previews, or only those assigned `port`. */
+  async list(port?: number) {
+    const records = this.records().filter(record => port === undefined || record.port === port).map(record => this.require(record.id));
     const threads = this.lookupThreads(records);
     return Promise.all(records.map(record => this.view(record, threads)));
   }
