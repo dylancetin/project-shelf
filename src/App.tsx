@@ -22,9 +22,18 @@ type View = 'all' | 'running' | 'favorites' | 'services' | 'hidden';
 type Route = 'home' | View;
 const viewNames: Record<View, string> = { all: 'All projects', running: 'Running', favorites: 'Favorites', services: 'Services', hidden: 'Hidden' };
 
+const PROJECT_HASH = /^#manage\/project\/([^/?]+)$/;
+
+/** `#manage/project/<id>` opens that project's details over All projects; the embedded controls link here. */
+function readProjectId(): string | null {
+  const id = PROJECT_HASH.exec(window.location.hash)?.[1];
+  if (!id) return null;
+  try { return decodeURIComponent(id); } catch { return null; }
+}
+
 function readRoute(): Route {
   const hash = window.location.hash;
-  if (hash === '#manage') return 'all';
+  if (hash === '#manage' || PROJECT_HASH.test(hash)) return 'all';
   const view = hash.replace(/^#manage\//, '');
   return ['running', 'favorites', 'services', 'hidden'].includes(view) ? view as View : 'home';
 }
@@ -49,7 +58,7 @@ export default function App() {
   const orderPending = useRef(false);
   const manageDrag = useRef<{ projects: Project[]; visible: string[] } | null>(null);
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(readProjectId);
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -86,7 +95,7 @@ export default function App() {
       setSource('all');
       setQuery('');
       setNavOpen(false);
-      setSelectedId(null);
+      setSelectedId(readProjectId());
       setAddOpen(false);
       setSettingsOpen(false);
       setOrganizeKind(null);
@@ -214,6 +223,11 @@ export default function App() {
     }).sort((a, b) => sort === 'shelf' ? 0 : sort === 'recent' ? b.createdAt.localeCompare(a.createdAt) : sort === 'running' ? Number(isActive(b)) - Number(isActive(a)) || a.name.localeCompare(b.name) : a.name.localeCompare(b.name));
   }, [projects, query, view, source, sort]);
   const selected = projects.find(project => project.id === selectedId);
+  const closeDetails = () => {
+    setSelectedId(null);
+    // Leave the deep link, or a reload would reopen the sheet that was just closed.
+    if (PROJECT_HASH.test(window.location.hash)) window.history.replaceState(null, '', '#manage');
+  };
   const orderDisabled = unavailable || ordering || sort !== 'shelf' || Boolean(query) || source !== 'all';
   const navIcons = { all: SquaresFour, running: Play, favorites: Star, services: GlobeHemisphereWest, hidden: EyeSlash };
 
@@ -259,7 +273,7 @@ export default function App() {
       </main>
     </div>
     {addOpen && <AddProjectDialog initialKind={view === 'services' ? 'service' : 'project'} onClose={() => setAddOpen(false)} onCreated={project => { upsert(project); setAddOpen(false); setNotice(`${project.name} added to your shelf.`); }} />}
-    {selected && <DetailsSheet project={selected} settings={settings} busy={busy.has(selected.id)} launching={launching.has(selected.id)} launchError={launchError?.id === selected.id ? launchError.message : ''} onOpen={openProject} onClose={() => setSelectedId(null)} onUpdate={data => updateProject(selected.id, data)} onAction={mode => action(selected, mode)} onDuplicated={project => { upsert(project); setSelectedId(project.id); setNotice(`${project.name} added to your shelf.`); }} onRemoved={() => { setProjects(current => current.filter(p => p.id !== selected.id)); setSelectedId(null); setNotice('Project removed from your shelf.'); }} />}
+    {selected && <DetailsSheet project={selected} settings={settings} busy={busy.has(selected.id)} launching={launching.has(selected.id)} launchError={launchError?.id === selected.id ? launchError.message : ''} onOpen={openProject} onClose={closeDetails} onUpdate={data => updateProject(selected.id, data)} onAction={mode => action(selected, mode)} onDuplicated={project => { upsert(project); setSelectedId(project.id); setNotice(`${project.name} added to your shelf.`); }} onRemoved={() => { setProjects(current => current.filter(p => p.id !== selected.id)); closeDetails(); setNotice('Project removed from your shelf.'); }} />}
     {settingsOpen && <SettingsDialog settings={settings} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onChanged={refresh} notify={setNotice} />}
     {organizeKind && <OrganizeDialog title={`Organize ${organizeKind === 'project' ? 'projects' : 'services'}`} description="This order is shared by Home, Manage, and every connected extension. Hidden entries and projects without an address are included; favorites remain in their own Home group." items={projects.filter(project => project.kind === organizeKind).map(project => ({ id: project.id, name: project.name, detail: `${project.hidden ? 'Hidden · ' : ''}${project.favorite ? 'Favorite · ' : ''}${projectUrl(project) || project.directory || 'No address configured'}`, icon: <ProjectAvatar project={project} /> }))} disabled={unavailable || ordering} onClose={() => setOrganizeKind(null)} onSave={(ids, previousIds) => reorderProjects(organizeKind, ids, previousIds)} />}
     {notice && <Toast message={notice} onDismiss={dismissToast} />}

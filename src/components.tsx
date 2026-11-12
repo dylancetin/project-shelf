@@ -11,7 +11,7 @@ export function Spinner({ size = 16 }: { size?: number }) {
   return <CircleNotch className="spinner" size={size} weight="bold" aria-hidden="true" />;
 }
 
-export function IconButton({ label, children, className = '', ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+export function IconButton({ label, children, className = '', ...props }: React.ComponentPropsWithRef<'button'> & { label: string }) {
   return <button type="button" className={`icon-button ${className}`} aria-label={label} title={label} {...props}>{children}</button>;
 }
 
