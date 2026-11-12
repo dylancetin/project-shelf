@@ -1,6 +1,7 @@
-import { chrome, hasAccess, type ContentScript } from './browser';
+import { chrome, hasAccess, readSettings, type ContentScript } from './browser';
+import { bubbleMatches, sameMatches } from './bubble-hosts';
 import { appBaseUrl, bridgeUrl, type ExtensionSettings } from './core';
-import { BRIDGE_CHANNEL, BRIDGE_SCRIPT_ID, type BridgeReply } from './protocol';
+import { BRIDGE_CHANNEL, BRIDGE_SCRIPT_ID, BUBBLE_SCRIPT_ID, type BridgeReply } from './protocol';
 
 export async function registerBridge(settings: ExtensionSettings): Promise<void> {
   if (!await hasAccess(settings)) throw new Error('Allow access to your server in Extension connection settings.');
@@ -16,6 +17,40 @@ export async function registerBridge(settings: ExtensionSettings): Promise<void>
     // Two new tabs may initialize together. A matching registration is enough.
     const current = await chrome.scripting.getRegisteredContentScripts({ ids: [BRIDGE_SCRIPT_ID] });
     if (current[0]?.matches[0] !== match) throw error;
+  }
+}
+
+let syncing: Promise<void> = Promise.resolve();
+
+/**
+ * Registers the dev-server bubble on exactly the hosts the user has granted, so removing a grant
+ * stops the script there. Registered scripts can be dropped when the extension updates or reloads,
+ * so every extension page that runs calls this again.
+ */
+export function syncBubbleScript(): Promise<void> {
+  const run = syncing.then(registerBubble);
+  syncing = run.catch(() => undefined);
+  return run;
+}
+
+async function registerBubble(): Promise<void> {
+  const settings = await readSettings().catch(() => null);
+  const matches = settings ? bubbleMatches((await chrome.permissions.getAll()).origins ?? []) : [];
+  const [existing] = await chrome.scripting.getRegisteredContentScripts({ ids: [BUBBLE_SCRIPT_ID] });
+  if (!matches.length) {
+    if (existing) await chrome.scripting.unregisterContentScripts({ ids: [BUBBLE_SCRIPT_ID] });
+    return;
+  }
+  if (existing && sameMatches(existing.matches, matches) && existing.js[0] === 'content.js') return;
+  const desired: ContentScript = { id: BUBBLE_SCRIPT_ID, matches, js: ['content.js'], allFrames: false,
+    runAt: 'document_idle', persistAcrossSessions: true };
+  try {
+    if (existing) await chrome.scripting.updateContentScripts([desired]);
+    else await chrome.scripting.registerContentScripts([desired]);
+  } catch (error) {
+    // Several extension pages can start together; a registration that already matches is enough.
+    const [current] = await chrome.scripting.getRegisteredContentScripts({ ids: [BUBBLE_SCRIPT_ID] });
+    if (!current || !sameMatches(current.matches, matches)) throw error;
   }
 }
 

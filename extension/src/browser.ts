@@ -1,15 +1,24 @@
 import { parseSettings, permissionOrigin, SETTINGS_KEY, type ExtensionSettings } from './core';
+import { BUBBLE_SETTINGS_KEY, parseBubbleSettings, type BubbleSettings } from '../../shared/embed';
 import type { BookmarkNode } from '../../shared/browser-bookmarks';
 
-interface ChromeEvent { addListener(listener: () => void): void; removeListener(listener: () => void): void }
+interface ChromeEvent<Args extends unknown[] = []> {
+  addListener(listener: (...args: Args) => void): void;
+  removeListener(listener: (...args: Args) => void): void;
+}
+export type StorageChanges = Record<string, { oldValue?: unknown; newValue?: unknown }>;
 interface PermissionSet { origins?: string[]; permissions?: string[] }
 
 // Only the small Chrome API surface used by this extension; no runtime dependencies.
 export interface ChromeApi {
-  storage: { local: {
-    get(key: string): Promise<Record<string, unknown>>;
-    set(values: Record<string, unknown>): Promise<void>;
-  } };
+  storage: {
+    local: {
+      get(keys: string | string[]): Promise<Record<string, unknown>>;
+      set(values: Record<string, unknown>): Promise<void>;
+    };
+    onChanged: ChromeEvent<[StorageChanges, string]>;
+  };
+  tabs: { query(filter: { active: boolean; currentWindow: boolean }): Promise<{ url?: string }[]> };
   permissions: {
     contains(permissions: PermissionSet): Promise<boolean>;
     request(permissions: PermissionSet): Promise<boolean>;
@@ -33,6 +42,7 @@ export interface ChromeApi {
   scripting: {
     getRegisteredContentScripts(filter?: { ids: string[] }): Promise<ContentScript[]>;
     registerContentScripts(scripts: ContentScript[]): Promise<void>;
+    updateContentScripts(scripts: ContentScript[]): Promise<void>;
     unregisterContentScripts(filter: { ids: string[] }): Promise<void>;
   };
 }
@@ -42,7 +52,7 @@ export interface ContentScript {
   matches: string[];
   js: string[];
   allFrames: boolean;
-  runAt: 'document_end';
+  runAt: 'document_end' | 'document_idle';
   persistAcrossSessions: boolean;
 }
 
@@ -55,6 +65,14 @@ export async function readSettings(): Promise<ExtensionSettings | null> {
 
 export async function hasAccess(settings: ExtensionSettings): Promise<boolean> {
   return chrome.permissions.contains({ origins: [permissionOrigin(settings.url)] });
+}
+
+export async function readBubbleSettings(): Promise<BubbleSettings> {
+  return parseBubbleSettings((await chrome.storage.local.get(BUBBLE_SETTINGS_KEY))[BUBBLE_SETTINGS_KEY]);
+}
+
+export function writeBubbleSettings(settings: BubbleSettings): Promise<void> {
+  return chrome.storage.local.set({ [BUBBLE_SETTINGS_KEY]: settings });
 }
 
 export function element<T extends HTMLElement>(id: string): T {

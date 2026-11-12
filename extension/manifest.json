@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Project Shelf — New Tab",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "description": "A locally cached Project Shelf in every new tab. No redirect; keep your browser's address bar focus.",
   "minimum_chrome_version": "109",
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "optional_permissions": ["bookmarks", "favicon"],
   "optional_host_permissions": ["http://*/*", "https://*/*", "https://icons.duckduckgo.com/*"],
   "chrome_url_overrides": { "newtab": "newtab.html" },

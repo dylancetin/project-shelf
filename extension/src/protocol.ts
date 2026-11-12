@@ -1,5 +1,6 @@
 export const BRIDGE_CHANNEL = 'project-shelf-extension-v1';
 export const BRIDGE_SCRIPT_ID = 'project-shelf-api-bridge';
+export const BUBBLE_SCRIPT_ID = 'project-shelf-bubble';
 
 export interface BridgeRequest { channel: typeof BRIDGE_CHANNEL; type: 'request'; id: string; path: string; method: string; body?: string }
 export interface BridgeReply { channel: typeof BRIDGE_CHANNEL; type: 'reply'; id: string; status?: number; data?: unknown; error?: string }
