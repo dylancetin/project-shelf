@@ -139,7 +139,14 @@
 .agent-server-label { display: grid; gap: 4px; min-width: 0; }
 .agent-server-label strong { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
 .agent-server-label small, .agent-status, .agent-message, .agent-log-details { color: var(--quiet); font-size: 11px; line-height: 1.6; }
-.agent-status { text-align: right; }
+.agent-thread { display: inline-flex; align-items: center; gap: 5px; justify-self: start; max-width: 100%; min-width: 0; color: var(--secondary); font-size: 11px; line-height: 1.5; text-decoration: none; }
+.agent-thread svg { flex: none; color: var(--quiet); }
+.agent-thread span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-thread em { flex: none; color: var(--quiet); font-style: normal; }
+.agent-thread em::before { content: '·'; margin-right: 5px; }
+a.agent-thread:hover { color: var(--ink); }
+a.agent-thread:hover span { text-decoration: underline; text-underline-offset: 2px; }
+.agent-status { flex: none; text-align: right; white-space: nowrap; }
 .agent-status.is-ready { color: var(--green); }
 .agent-server-actions { display: flex; align-items: center; gap: 16px; margin-top: 9px; }
 .agent-server-actions .text-button { font-size: 12px; }

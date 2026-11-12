@@ -15,6 +15,7 @@ import { object, projectInput, settingsInput, text } from './validation';
 import { AgentServers } from './agent-servers';
 import type { AgentSupervisor } from './agent-supervisor';
 import { authorizeMcp, handleAgentMcp, mcpCredential } from './agent-mcp';
+import type { T3Threads } from './t3-threads';
 
 const MAX_BODY = 5 * 1024 * 1024;
 const JSON_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -28,6 +29,9 @@ export interface AppOptions {
   processOptions?: ProcessOptions;
   launchOptions?: LaunchOptions;
   agentSupervisor?: AgentSupervisor;
+  t3Threads?: T3Threads;
+  /** Interval for removing agent previews whose T3 thread is settled; disabled when unset. */
+  agentThreadCheckMs?: number;
 }
 
 export function json(data: unknown, status = 200): Response {
@@ -110,11 +114,25 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 export async function createApp(options: AppOptions) {
   const store = new Store(options.dbPath, options.initialSettings);
   const processes = new ProcessManager(options.processOptions);
-  const agentServers = new AgentServers(store, options.agentSupervisor);
+  const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads);
   const agentToken = mcpCredential(options.dbPath);
   let scanning: ReturnType<typeof scanRoots> | null = null;
   let closing = false;
   let closePromise: Promise<void> | null = null;
+  let threadCheck: Promise<void> | null = null;
+  async function removeSettledAgentServers() {
+    try {
+      const { removed, failed } = await agentServers.removeSettled();
+      for (const item of removed) console.log(`Removed agent preview "${item.name}" (${item.id}): T3 thread ${item.threadId} is ${item.status}`);
+      for (const item of failed) console.error(`Could not remove agent preview "${item.name}" (${item.id}) for ${item.status} T3 thread ${item.threadId}; retrying at the next check: ${item.error}`);
+    } catch (error) { console.error(`Skipped T3 thread check for agent previews: ${errorMessage(error)}`); }
+  }
+  // Never overlaps: a slow stop delays the next check instead of racing it.
+  const threadTimer = options.agentThreadCheckMs ? setInterval(() => {
+    if (closing || threadCheck) return;
+    threadCheck = removeSettledAgentServers().finally(() => { threadCheck = null; });
+  }, options.agentThreadCheckMs) : null;
+  threadTimer?.unref();
   const requests = new Set<Promise<Response>>();
   const locks = new Map<string, Promise<unknown>>();
 
@@ -364,7 +382,8 @@ export async function createApp(options: AppOptions) {
     if (!closePromise) {
       closing = true;
       closePromise = (async () => {
-        await Promise.allSettled([...requests]);
+        if (threadTimer) clearInterval(threadTimer);
+        await Promise.allSettled([...requests, threadCheck]);
         await processes.close();
         store.close();
       })();

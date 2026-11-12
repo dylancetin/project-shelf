@@ -15,7 +15,7 @@ import { BangSearch, useBangSearch } from './BangSearch';
 import { BrowserBookmarks } from './BrowserBookmarks';
 import { useBookmarks } from './useBookmarks';
 import { shelfItemId, type ShelfColumn, type ShelfItemDragData } from './shelf-columns';
-import { AgentServers, useAgentServers } from './AgentServers';
+import { AgentServers, matchesAgentServer, useAgentServers } from './AgentServers';
 
 type Destination = { project: Project; url: string };
 type Layout = 'compact' | 'grid';
@@ -76,7 +76,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   // Destination collections stay intact; only bookmark folders form extra columns.
   const columns = useMemo(() => groups.map(group => ({ ...group, id: `${group.id}-0` })), [groups]);
   const matches = groups.flatMap(group => group.items);
-  const matchingAgents = agentServers.servers.filter(server => query.trim().toLowerCase().split(/\s+/).every(word => `${server.name} ${server.cwd} ${server.url}`.toLowerCase().includes(word)));
+  const matchingAgents = agentServers.servers.filter(server => matchesAgentServer(server, query));
   const firstReadyAgent = agentServers.available && !agentServers.error ? matchingAgents.find(server => server.ready) : undefined;
   const bookmarkMatches = searchBookmarks(bookmarks.tree, query);
   const firstBookmark = bookmarkMatches.find(node => bookmarkUrl(node));

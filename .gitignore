@@ -6,5 +6,6 @@ dist/
 .env.*
 !.env.example
 playwright-report/
+.playwright-mcp/
 test-results/
 *.sqlite.mcp.json

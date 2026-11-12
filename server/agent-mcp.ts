@@ -45,17 +45,27 @@ export function authorizeMcp(request: Request, token: string, hostnames: string[
 export async function handleAgentMcp(c: Context, servers: AgentServers, projects: McpProjects) {
   // A separate stateless server AND transport per request: two clients can use
   // the same JSON-RPC request ID without sharing pending-response maps.
-  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.1.0' });
+  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.3.0' });
   const result = async (operation: () => Promise<unknown>) => {
     try { return { content: [{ type: 'text' as const, text: JSON.stringify(await operation(), null, 2) }] }; }
     catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }] }; }
   };
   server.registerTool('add', {
-    description: 'Start or reuse a manually retained development preview on this machine. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, and logs URL. Retry with the same idempotencyKey; do not launch unmanaged background processes.',
-    inputSchema: { name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096), command: z.string().min(1).max(16000), idempotencyKey: z.string().max(200).optional() },
+    description: 'Start or reuse a retained development preview on this machine, owned by your T3 Code thread. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, logs URL, and owning thread. The preview stays until deleted, or until its top-level T3 thread (a subagent\'s parent) is settled, archived or deleted: a check every 10 minutes then stops and removes it. Retry with the same idempotencyKey; do not launch unmanaged background processes.',
+    inputSchema: {
+      name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096), command: z.string().min(1).max(16000),
+      threadId: z.string().min(1).max(500).describe('Required. Your T3 Code thread ID: the value of the T3CODE_THREAD_ID environment variable in your shell (run printenv T3CODE_THREAD_ID). Never guess or reuse another thread\'s ID.'),
+      idempotencyKey: z.string().max(200).optional(),
+    },
   }, input => result(() => servers.add(input)));
+  server.registerTool('restart', {
+    title: 'Restart agent server',
+    description: 'Restart an existing agent preview in place: stop its entire owned unit/process tree, then rerun the same saved command in the same cwd on the same port, keeping its ID and URL. Use after config or dependency changes, a crash, or a machine reboot. Returns the same shape as add, with a new diagnostic PID. If the old run cannot be stopped, nothing is started. If another program took the port while it was down, it stays stopped and is not killed; delete it and add a new preview. To change the command or cwd, delete and add instead.',
+    inputSchema: { id: z.string().uuid().describe('Agent server ID returned by add or shelf://agent-servers') },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }, ({ id }) => result(() => servers.restart(id)));
   server.registerTool('delete', {
-    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Manual lifetime: only delete when asked or when this preview is no longer wanted. A failed stop retains the record. Repeated deletion is safe.',
+    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Only delete when asked or when this preview is no longer wanted; previews are removed automatically after their T3 thread is settled. A failed stop retains the record. Repeated deletion is safe.',
     inputSchema: { id: z.string().uuid() },
   }, ({ id }) => result(() => servers.delete(id)));
   server.registerTool('projects_list', {
@@ -79,7 +89,7 @@ export async function handleAgentMcp(c: Context, servers: AgentServers, projects
     inputSchema: { id: z.string().min(1).max(200).describe('Project ID returned by projects_list') },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, ({ id }) => result(async () => ({ logs: projects.logs(id) })));
-  server.registerResource('agent-servers', 'shelf://agent-servers', { description: 'Current previews, readiness, URLs, IDs and log access', mimeType: 'application/json' }, async uri => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await servers.list()) }] }));
+  server.registerResource('agent-servers', 'shelf://agent-servers', { description: 'Current previews, readiness, URLs, IDs, owning T3 threads and log access', mimeType: 'application/json' }, async uri => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await servers.list()) }] }));
   server.registerResource('agent-server-logs', new ResourceTemplate('shelf://agent-servers/{id}/logs', { list: undefined }), { mimeType: 'text/plain', description: 'Last 150 journal lines (up to 64 KiB)' }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: await servers.logs(String(variables.id)) }] }));
   const transport = new StreamableHTTPTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);

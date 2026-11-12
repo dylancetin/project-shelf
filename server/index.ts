@@ -13,6 +13,7 @@ export async function startServer(overrides: Partial<AppOptions> & { port?: numb
     dbPath: process.env.PANEL_DB_PATH || path.join(projectRoot, 'data/panel.sqlite'),
     staticDir: path.join(projectRoot, 'dist'),
     bookmarksPath: path.join(projectRoot, 'data/bookmarks.html'),
+    agentThreadCheckMs: 10 * 60 * 1000,
     ...overrides,
   });
   let server: ReturnType<typeof Bun.serve>;

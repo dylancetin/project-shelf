@@ -40,6 +40,7 @@ The smoke script accepts a different base URL: `bun scripts/smoke.ts http://127.
 | `server/scanner.ts` | Recursive discovery and command/port inference |
 | `server/paths.ts`, `server/logos.ts` | Filesystem boundaries, copying, image discovery/serving |
 | `server/bookmarks.ts`, `server/validation.ts` | Bookmark parsing and request validation |
+| `server/agent-servers.ts`, `server/agent-mcp.ts`, `server/t3-threads.ts` | Agent preview units, MCP tools, and read-only T3 Code thread ownership/auto-removal |
 | `src/api.ts` | Browser API client, instance URL construction, shared UI helpers |
 | `src/App.tsx` | Dashboard, navigation, filtering, project cards, runtime polling |
 | `src/Launcher.tsx`, `src/launcher.css` | Compact Home destinations, grouping, keyboard search, new-tab layout |

@@ -37,7 +37,7 @@ set +x
 export PROJECT_SHELF_MCP_TOKEN="$(bun -e 'const c = await Bun.file("/home/taytay/.t3-nightly/projects/dev-server-panel/data/panel.sqlite.mcp.json").json(); process.stdout.write(c.bearerToken)')"
 ```
 
-Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`, `delete`, `projects_list`, `project_run`, and `project_logs` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
+Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`, `restart`, `delete`, `projects_list`, `project_run`, and `project_logs` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
 
 The endpoint is stateless: each request gets an independent MCP server/transport. No accounts, OAuth, or CLI is required. A `401` means the configured bearer credential is missing/wrong; a `403` means Host/Origin is not allowed.
 
@@ -50,13 +50,16 @@ The endpoint is stateless: each request gets an independent MCP server/transport
 
 ## Start or reuse
 
-Call MCP tool **`add`** with `name`, absolute `cwd`, and foreground `command`. Use the **actual worktree directory**, not the main checkout. Include a unique `idempotencyKey` for the intended preview and retain it for retries. Reusing a key with different inputs is rejected; identical inputs without a key also deduplicate. A deleted request cannot be resurrected by a delayed retry: use a new key for an intentionally new run.
+Call MCP tool **`add`** with `name`, absolute `cwd`, foreground `command`, and your T3 Code `threadId`. Use the **actual worktree directory**, not the main checkout.
+
+`threadId` is **required**: it is the `T3CODE_THREAD_ID` environment variable of your own shell. Read it with `printenv T3CODE_THREAD_ID` and pass the exact value; never guess it or reuse another thread's ID. A subagent passes its own ID; the preview then belongs to the top-level thread it works for. If the variable is empty, you are not running inside T3 Code on beelinkk: ask the user instead of inventing one. Include a unique `idempotencyKey` for the intended preview and retain it for retries. Reusing a key with different inputs is rejected; identical inputs without a key also deduplicate. A deleted request cannot be resurrected by a delayed retry: use a new key for an intentionally new run.
 
 ```json
 {
   "name": "My feature preview",
   "cwd": "/absolute/path/to/the/worktree",
   "command": "./node_modules/.bin/vite --port {port} --strictPort --host 0.0.0.0",
+  "threadId": "<output of printenv T3CODE_THREAD_ID>",
   "idempotencyKey": "feature-unique-run-1"
 }
 ```
@@ -69,8 +72,16 @@ The result includes stable `id`, `machineId`, machine name, diagnostic-only `pid
 
 - MCP resource `shelf://agent-servers` lists current records and statuses.
 - MCP resource `shelf://agent-servers/<id>/logs` reads recent journal logs (last 150 lines, at most 64 KiB). Same-origin UI uses `/api/agent-servers` and `/api/agent-servers/<id>/logs`.
-- Home displays Agent Servers **beneath Projects in the same column**, including the browser extension. Visit opens the preferred URL; Logs exposes command, worktree, PID, status, and output; Stop stops and removes the run.
-- **Leave the server running for manual user verification. Return the reachable URL to the user.** There is no TTL. Panel restart does not stop these independent user-systemd units. Machine reboot does stop them; persistent records remain inspectable and can be removed. No remote execution is implemented.
+- Home displays Agent Servers **beneath Projects in the same column**, including the browser extension. Each row links to its owning T3 thread. Visit opens the preferred URL; Logs exposes command, worktree, PID, status, and output; Stop stops and removes the run.
+- **Leave the server running for manual user verification. Return the reachable URL to the user.** It stays until deleted or until its top-level T3 thread is settled, archived, or deleted: a check every 10 minutes then stops and fully removes it. You do not need to clean up previews when you finish; settling the thread does it. Unknown or unreadable thread state never removes a preview. Panel restart does not stop these independent user-systemd units. Machine reboot does stop them; persistent records remain inspectable and can be removed. No remote execution is implemented.
+
+## Restart
+
+Call MCP tool **`restart`** with `{ "id": "<server-generated ID>" }` when a preview must pick up configuration or dependency changes, crashed, or stopped after a machine reboot. It stops the entire owned control group, then reruns the **same** `command` in the same `cwd` on the same port, keeping the ID and URL. It returns the same shape as `add`, with a new diagnostic `pid`. Check `ready` and logs as after `add`.
+
+- If the old run cannot be stopped, nothing new is started; retry or inspect logs.
+- If another program took the port while the preview was down, the preview stays stopped with a `Restart blocked` diagnostic. Never kill the occupant: delete the preview and `add` a new one with a new `idempotencyKey`.
+- To change the command or worktree, delete and add instead. Prefer restart over delete/add when only the running process needs refreshing, so the user's URL stays valid.
 
 ## Stop and delete
 
