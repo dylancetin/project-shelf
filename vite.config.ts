@@ -1,6 +1,18 @@
-import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// The framed controls page is not an installable app, so it should not advertise the web manifest the
+// PWA plugin adds to every page it builds.
+const embedWithoutManifest = (): Plugin => ({
+  name: 'embed-without-manifest',
+  enforce: 'post',
+  transformIndexHtml: {
+    order: 'post',
+    handler: (html, context) => context.filename.endsWith('embed.html') ? html.replace(/\s*<link rel="manifest"[^>]*>/, '') : html,
+  },
+});
 
 export default defineConfig({
   plugins: [react(), VitePWA({
@@ -24,8 +36,11 @@ export default defineConfig({
     },
     workbox: {
       globPatterns: ['**/*.{js,css,html,svg,png,jpg,json,webmanifest}'],
+      // The framed controls page follows live settings and the current build's asset hashes,
+      // so a worker must neither precache it nor answer its navigations with the shell.
+      globIgnores: ['embed.html'],
       navigateFallback: '/index.html',
-      navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/search(?:[/?]|$)/, /^\/opensearch\.xml(?:[/?]|$)/],
+      navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/search(?:[/?]|$)/, /^\/opensearch\.xml(?:[/?]|$)/, /^\/embed\.html(?:[/?]|$)/],
       cleanupOutdatedCaches: true,
       clientsClaim: true,
       // The versioned shell is cache-first; worker updates download in the
@@ -34,7 +49,15 @@ export default defineConfig({
       // Never replay commands or present cached status/logs as live responses.
       runtimeCaching: [],
     },
-  })],
+  }), embedWithoutManifest()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        embed: fileURLToPath(new URL('./embed.html', import.meta.url)),
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: Number(process.env.PORT || 4958),
