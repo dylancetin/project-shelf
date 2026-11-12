@@ -13,26 +13,39 @@ export interface Poll<T> {
 
 interface Snapshot<T> { key: string; data: T | null; error: string | null }
 
+/** Wait `ms` between fetches instead of the usual interval for as long as the latest answer is `idle`. */
+export interface PollBackoff<T> { idle: (data: T) => boolean; ms: number }
+
+/** The wait before the next fetch: the interval, stretched to the backoff while the latest answer is idle. */
+export function nextDelay<T>(intervalMs: number, latest: T | null, backoff?: PollBackoff<T>): number {
+  return backoff && latest !== null && backoff.idle(latest) ? Math.max(intervalMs, backoff.ms) : intervalMs;
+}
+
 /**
  * Loads once, then every `intervalMs` (null: once only). Ticks are skipped while the document is
  * hidden and a fetch runs as soon as it is visible again. `key` identifies what is being loaded;
  * a new key forgets the old answer instead of showing it for the new subject.
  */
-export function usePoll<T>(key: string, load: (signal: AbortSignal) => Promise<T>, intervalMs: number | null, enabled = true): Poll<T> {
+export function usePoll<T>(
+  key: string, load: (signal: AbortSignal) => Promise<T>, intervalMs: number | null, enabled = true, backoff?: PollBackoff<T>,
+): Poll<T> {
   const [snapshot, setSnapshot] = useState<Snapshot<T>>({ key, data: null, error: null });
   const loadRef = useRef(load);
   loadRef.current = load;
+  const backoffRef = useRef(backoff);
+  backoffRef.current = backoff;
   const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
     let loaded = false;
+    let latest: T | null = null;
     let inFlight: AbortController | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const schedule = () => {
-      if (alive && intervalMs !== null) timer = setTimeout(tick, intervalMs);
+      if (alive && intervalMs !== null) timer = setTimeout(tick, nextDelay(intervalMs, latest, backoffRef.current));
     };
     async function fetchNow() {
       clearTimeout(timer);
@@ -43,6 +56,7 @@ export function usePoll<T>(key: string, load: (signal: AbortSignal) => Promise<T
         const data = await loadRef.current(controller.signal);
         if (controller.signal.aborted) return;
         loaded = true;
+        latest = data;
         setSnapshot({ key, data, error: null });
       } catch (error) {
         if (controller.signal.aborted) return;

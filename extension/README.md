@@ -109,7 +109,10 @@ background worker, and the server gains no CORS or origin exceptions.
   fixed host element, at the top of the z-index range, and stays invisible until the
   embed posts a `layout`. The embed alone decides whether the page is a dev server.
   Only the page **origin** is sent, never its path, query, or fragment, and the frame
-  is loaded without a referrer.
+  is loaded without a referrer. The panel only lets the page at that origin frame it
+  (`frame-ancestors 'self' <origin>` for this request), and the embed double-checks its
+  direct parent, so another dev server on the same machine cannot frame the controls for
+  a different one. The popup's frame is allowed for extension pages only.
 - **Trust.** Messages count only from that iframe's window, from the panel origin,
   and with the `shared/embed.ts` shape. A message posted by the page itself, or by
   another frame at the panel origin, is ignored. The script does nothing on the panel's

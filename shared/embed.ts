@@ -126,5 +126,16 @@ export function readEmbedParams(search: string): { surface: EmbedSurface; pageUr
   return { surface: params.get('surface') === 'bubble' ? 'bubble' : 'popup', pageUrl };
 }
 
+/**
+ * Whether the page directly framing the embed may use it. The bubble acts on the runtimes of the page it
+ * was asked about, so it must be framed by that page itself; the popup is the extension's own UI.
+ * `parentOrigin` is the direct parent's origin from `location.ancestorOrigins` ('null' for an opaque one).
+ * The server sends a matching `frame-ancestors`; this is the second layer, for frames it cannot see through.
+ */
+export function embedFramerAllowed(surface: EmbedSurface, pageUrl: URL | null, parentOrigin: string): boolean {
+  if (surface === 'popup') return parentOrigin.startsWith('chrome-extension://');
+  return pageUrl !== null && parentOrigin === pageUrl.origin;
+}
+
 export const BUBBLE_PIXELS: Record<BubbleSize, number> = { small: 40, medium: 48, large: 58 };
 export const PANEL_SIZE: { width: number; height: number } = { width: 384, height: 560 };

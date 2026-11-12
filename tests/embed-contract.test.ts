@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  BUBBLE_PIXELS, BUBBLE_SETTINGS_KEY, DEFAULT_BUBBLE_SETTINGS, PANEL_SIZE, embedUrl, parseBubbleSettings,
+  BUBBLE_PIXELS, BUBBLE_SETTINGS_KEY, DEFAULT_BUBBLE_SETTINGS, PANEL_SIZE, embedFramerAllowed, embedUrl, parseBubbleSettings,
   parseEmbedToHostMessage, parseHostToEmbedMessage, readEmbedParams, type BubbleSettings,
 } from '../shared/embed';
 
@@ -138,5 +138,26 @@ describe('embed address', () => {
   test('exposes the fixed geometry', () => {
     expect(BUBBLE_PIXELS).toEqual({ small: 40, medium: 48, large: 58 });
     expect(PANEL_SIZE).toEqual({ width: 384, height: 560 });
+  });
+});
+
+describe('who may frame the embed', () => {
+  const page = new URL('http://beelinkk:5173/some/path');
+  const extension = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+
+  test('the bubble only for the page it was asked about', () => {
+    expect(embedFramerAllowed('bubble', page, 'http://beelinkk:5173')).toBe(true);
+    for (const parent of ['http://beelinkk:3000', 'https://beelinkk:5173', 'http://192.168.1.50:5173', 'http://beelinkk', 'null', '', extension]) {
+      expect(embedFramerAllowed('bubble', page, parent)).toBe(false);
+    }
+    expect(embedFramerAllowed('bubble', null, 'http://beelinkk:5173')).toBe(false);
+  });
+
+  test('the popup only for an extension, whatever page it was asked about', () => {
+    expect(embedFramerAllowed('popup', page, extension)).toBe(true);
+    expect(embedFramerAllowed('popup', null, extension)).toBe(true);
+    for (const parent of ['http://beelinkk:5173', 'http://beelinkk:4958', 'https://evil.example', 'chrome-extension:', 'null', '']) {
+      expect(embedFramerAllowed('popup', page, parent)).toBe(false);
+    }
   });
 });

@@ -20,6 +20,9 @@ export interface EmbedParams { surface: EmbedSurface; pageUrl: URL | null }
 // Quick while someone is looking at the panel, slow while it is only a bubble waiting to be needed.
 const WATCHING_MS = 2000;
 const IDLE_MS = 6000;
+// The frame is loaded in every tab on a granted host, nearly all of which serve nothing. A tab that
+// becomes visible again asks at once (see usePoll), so a server started meanwhile still shows up promptly.
+const UNMATCHED_MS = 60_000;
 const PROJECT_LOGS_MS = 1600;
 const AGENT_LOGS_MS = 2500;
 const CLOSE_GRACE_MS = 1500;
@@ -69,7 +72,7 @@ export function EmbedApp({ surface, pageUrl }: EmbedParams) {
 
   // The page's runtimes. A popup with no web page has nothing to resolve, which is an answer, not a wait.
   const page = usePoll(`page:${origin}`, signal => api.runtimeTargets(origin ?? '', signal).then(result => result.targets),
-    watching ? WATCHING_MS : IDLE_MS, origin !== null && !suppressed);
+    watching ? WATCHING_MS : IDLE_MS, origin !== null && !suppressed, watching ? undefined : { idle: targets => targets.length === 0, ms: UNMATCHED_MS });
   const pageTargets = origin === null && surface === 'popup' ? [] : page.data;
 
   const needsCatalog = surface === 'popup' && pageTargets !== null && pageTargets.length === 0;
