@@ -5,7 +5,7 @@ import { PwaProvider } from '../../src/Pwa';
 import { configurePlatform } from '../../src/platform';
 import { chrome, message, readSettings } from './browser';
 import { extensionSnapshotKey } from './core';
-import { ExtensionConnection } from './connection';
+import { ExtensionConnection, syncBubbleScript } from './connection';
 import { browserBookmarks } from './bookmarks';
 import '../../src/styles.css';
 import './newtab.css';
@@ -20,6 +20,7 @@ async function start() {
   try {
     const settings = await readSettings();
     if (!settings) { root.render(<Setup />); return; }
+    void syncBubbleScript().catch(() => undefined);
     const connection = new ExtensionConnection(settings);
     configurePlatform({ request: connection.request, apiAsset: connection.asset,
       snapshotKey: extensionSnapshotKey(settings.url), openExtensionSettings: () => chrome.runtime.openOptionsPage(), bookmarks: browserBookmarks() });
