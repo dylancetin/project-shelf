@@ -6,7 +6,9 @@ import type { Project, RunStatus } from '../shared/types';
 import { activeThreads, cleanup, FakeAgentSupervisor, fixture, project, request, until } from './helpers';
 
 const HOSTNAMES = ['beelinkk', '192.168.1.50', 'devbox.lan'];
-const PANEL: RuntimeTargetInput['panel'] = { port: 4958, origins: ['http://beelinkk:4958', 'https://panel.tail750ac6.ts.net'] };
+const PANEL: RuntimeTargetInput['panel'] = { port: 4958, origins: ['http://beelinkk:4958', 'https://panel.tail750ac6.ts.net'], loopback: false };
+// The panel reached on the server's own machine, where `localhost` in the browser is the server.
+const ON_SERVER: RuntimeTargetInput['panel'] = { port: 4958, origins: ['http://localhost:4958'], loopback: true };
 
 function registered(name: string, overrides: Partial<Project> = {}, status: RunStatus = 'stopped'): Project {
   return {
@@ -31,9 +33,42 @@ const names = (targets: RuntimeTarget[]) => targets.map(target => target.kind ==
 describe('resolving a browser URL to registered runtimes', () => {
   test('matches a server alias on the project port, whatever the path, query and fragment', () => {
     const web = registered('web', { port: 6100 });
-    for (const page of ['http://beelinkk:6100/', 'http://192.168.1.50:6100/app?x=1#section', 'http://devbox.lan:6100/', 'http://localhost:6100/', 'http://127.0.0.1:6100/', 'http://[::1]:6100/', 'http://BEELINKK:6100/']) {
+    for (const page of ['http://beelinkk:6100/', 'http://192.168.1.50:6100/app?x=1#section', 'http://devbox.lan:6100/', 'http://BEELINKK:6100/']) {
       expect(names(resolve(page, [web]))).toEqual(['web']);
     }
+  });
+
+  test('loopback names are this server only when the panel was reached on loopback', () => {
+    const web = registered('web', { port: 6100 });
+    const stored = registered('stored', { port: 6200, url: 'http://localhost:6200/', hostname: 'workstation' });
+    for (const page of ['http://localhost:6100/', 'http://127.0.0.1:6100/', 'http://[::1]:6100/']) {
+      // The browser is on another machine, where this is an unrelated local page.
+      expect(resolve(page, [web])).toEqual([]);
+      expect(names(resolve(page, [web], [], ON_SERVER))).toEqual(['web']);
+    }
+    expect(names(resolve('http://beelinkk:6100/', [web], [], ON_SERVER))).toEqual(['web']);
+    // A stored loopback address is no different from the loopback alias.
+    expect(resolve('http://localhost:6200/', [stored])).toEqual([]);
+    expect(names(resolve('http://localhost:6200/', [stored], [], ON_SERVER))).toEqual(['stored']);
+    expect(names(resolve('http://workstation:6200/', [stored]))).toEqual(['stored']);
+    expect(resolve('http://localhost:6100/', [], [preview('agent', 6100)])).toEqual([]);
+    expect(resolve('http://localhost:6100/', [], [preview('agent', 6100)], ON_SERVER)).toHaveLength(1);
+  });
+
+  test('the scheme must match: http for a port alone, a stored address’s own scheme when it is served from this machine', () => {
+    const portOnly = registered('port only', { port: 6100 });
+    expect(resolve('https://beelinkk:6100/', [portOnly])).toEqual([]);
+    expect(names(resolve('http://beelinkk:6100/', [portOnly]))).toEqual(['port only']);
+    const direct = registered('direct', { port: 6101, url: 'https://beelinkk:6101/' });
+    expect(names(resolve('https://beelinkk:6101/', [direct]))).toEqual(['direct']);
+    expect(resolve('http://beelinkk:6101/', [direct])).toEqual([]);
+    // A reverse proxy's https says nothing about the dev server behind it, which still answers plain http.
+    const proxied = registered('proxied', { port: 6102, url: 'https://app.tail750ac6.ts.net/' });
+    expect(names(resolve('http://beelinkk:6102/', [proxied]))).toEqual(['proxied']);
+    expect(resolve('https://beelinkk:6102/', [proxied])).toEqual([]);
+    expect(names(resolve('https://app.tail750ac6.ts.net/', [proxied]))).toEqual(['proxied']);
+    expect(resolve('https://beelinkk:5123/', [], [preview('agent', 5123)])).toEqual([]);
+    expect(resolve('http://beelinkk:5123/', [], [preview('agent', 5123)])).toHaveLength(1);
   });
 
   test('does not match another host, another port, or a service', () => {
@@ -47,7 +82,7 @@ describe('resolving a browser URL to registered runtimes', () => {
   });
 
   test('uses the scheme default port when the address has none', () => {
-    const secure = registered('secure', { port: 443 });
+    const secure = registered('secure', { port: 443, url: 'https://beelinkk/' });
     expect(names(resolve('https://beelinkk/', [secure]))).toEqual(['secure']);
     expect(resolve('http://beelinkk/', [secure])).toEqual([]);
     expect(names(resolve('http://beelinkk/', [registered('plain', { port: 80 })]))).toEqual(['plain']);
@@ -89,7 +124,8 @@ describe('resolving a browser URL to registered runtimes', () => {
     expect(resolve('http://192.168.1.50:4958/', [shelf])).toEqual([]);
     expect(resolve('https://panel.tail750ac6.ts.net/', [shelf])).toEqual([]);
     expect(names(resolve('http://beelinkk:4959/', [{ ...shelf, port: 4959 }]))).toEqual(['shelf']);
-    expect(names(resolve('http://beelinkk:4958/', [shelf], [], { port: null, origins: [] }))).toEqual(['shelf']);
+    expect(names(resolve('http://beelinkk:4958/', [shelf], [], { port: null, origins: [], loopback: false }))).toEqual(['shelf']);
+    expect(resolve('http://localhost:4958/', [shelf], [], ON_SERVER)).toEqual([]);
   });
 });
 
@@ -146,6 +182,18 @@ describe('GET /api/runtime-targets', () => {
     expect(shared.targets[0]).toEqual({ kind: 'agent', server: listedServers[0]! });
     expect(shared.targets[1]).toMatchObject({ kind: 'project', project: { name: 'Shares the preview port' } });
     expect(await targets('http://example.com:6200/')).toEqual({ targets: [] });
+  });
+
+  test('loopback pages resolve only when the panel itself was reached on loopback', async () => {
+    app.store.insert(project(root, { name: 'Local', port: 6200 }));
+    const ask = async (panel: string, page: string): Promise<RuntimeTargetsResponse> =>
+      (await app.fetch(new Request(`${panel}/api/runtime-targets?url=${encodeURIComponent(page)}`))).json();
+    expect(await ask('http://beelinkk:4958', 'http://localhost:6200/')).toEqual({ targets: [] });
+    expect(await ask('https://panel.tail750ac6.ts.net', 'http://127.0.0.1:6200/')).toEqual({ targets: [] });
+    expect((await ask('http://beelinkk:4958', 'http://beelinkk:6200/')).targets).toHaveLength(1);
+    expect((await ask('http://127.0.0.1:4958', 'http://localhost:6200/')).targets).toHaveLength(1);
+    expect((await ask('http://localhost:4958', 'http://127.0.0.1:6200/')).targets).toHaveLength(1);
+    expect(await ask('http://beelinkk:4958', 'https://beelinkk:6200/')).toEqual({ targets: [] });
   });
 
   test('resolves nothing for the panel’s own page, by listener port or request origin', async () => {

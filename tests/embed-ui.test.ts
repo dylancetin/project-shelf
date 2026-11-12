@@ -6,6 +6,7 @@ import {
   agentEntries, alternateHostLinks, chooseScreen, entriesAfter, filterEntries, layoutFor, lastLogId, markEnd,
   projectEntries, targetKey, unseenStderr, uptimeLabel, type ScreenInput,
 } from '../src/embed/model';
+import { nextDelay } from '../src/embed/poll';
 
 function project(id: string, status: Project['runtime']['status'], overrides: Partial<Project> = {}): RuntimeTarget {
   return {
@@ -153,5 +154,18 @@ describe('uptime', () => {
     expect(uptimeLabel(start, at(2 * 3600 + 5 * 60))).toBe('2h 05m');
     expect(uptimeLabel(start, at(26 * 3600))).toBe('1d 2h');
     expect(uptimeLabel('garbage', at(1))).toBe('');
+  });
+});
+
+describe('polling cadence', () => {
+  const unmatched = { idle: (targets: unknown[]) => targets.length === 0, ms: 60_000 };
+
+  test('keeps the interval while something matches, and backs off while nothing does', () => {
+    expect(nextDelay(6000, null, unmatched)).toBe(6000);
+    expect(nextDelay(6000, [{}], unmatched)).toBe(6000);
+    expect(nextDelay(6000, [], unmatched)).toBe(60_000);
+    expect(nextDelay(6000, [], undefined)).toBe(6000);
+    // Never faster than the interval it was given.
+    expect(nextDelay(120_000, [], unmatched)).toBe(120_000);
   });
 });

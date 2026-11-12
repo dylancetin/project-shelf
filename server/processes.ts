@@ -88,14 +88,18 @@ export class ProcessManager {
     }
   }
 
-  async start(project: ProjectData, mode: RunMode): Promise<Project> {
+  /** Everything that makes a start request unacceptable regardless of what is running now. Restart asks before it stops anything. */
+  private async validate(project: ProjectData, mode: RunMode): Promise<void> {
     if (this.closed) throw new ApiError(503, 'The server is shutting down');
     if (project.kind !== 'project') throw new ApiError(400, 'Services are links and cannot be started');
     if (!['dev', 'prod', 'build'].includes(mode)) throw new ApiError(400, 'mode must be dev, prod, or build');
-    if (this.active(project.id)) throw new ApiError(409, 'This project already has a managed command running');
     const command = mode === 'dev' ? project.devCommand : mode === 'build' ? project.buildCommand : project.prodCommand;
     if (!command.trim()) throw new ApiError(400, `No ${mode === 'prod' ? 'production' : mode} command is configured`);
     await canonicalDirectory(project.directory);
+  }
+
+  async start(project: ProjectData, mode: RunMode): Promise<Project> {
+    await this.validate(project, mode);
     // Recheck after filesystem validation; concurrent start requests must not launch two trees.
     if (this.closed) throw new ApiError(503, 'The server is shutting down');
     if (this.active(project.id)) throw new ApiError(409, 'This project already has a managed command running');
@@ -243,10 +247,11 @@ export class ProcessManager {
    * one the command ran in, except that stopped and build-only runs come back as development.
    */
   async restart(project: ProjectData, requested?: Exclude<RunMode, 'build'>): Promise<Project> {
-    if (project.kind !== 'project') throw new ApiError(400, 'Services are links and cannot be started');
     const previous = this.records.get(project.id);
     const mode = requested ?? (previous && previous.runtime.status !== 'stopped' && previous.runtime.mode === 'prod' ? 'prod' : 'dev');
-    const group = previous?.groupPid ?? null;
+    // A restart start would refuse must leave the running process alone.
+    await this.validate(project, mode);
+    const group = this.records.get(project.id)?.groupPid ?? null;
     if (this.active(project.id)) await this.stop(project.id);
     // stop() resolves once the shell has exited and its group was signalled; a straggler would still hold the port.
     if (group && !await this.groupGone(group)) {

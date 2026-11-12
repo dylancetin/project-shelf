@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  BUBBLE_PIXELS, BUBBLE_SETTINGS_KEY, DEFAULT_BUBBLE_SETTINGS, parseBubbleSettings, parseHostToEmbedMessage,
-  type BubbleSettings, type EmbedLayout, type EmbedToHostMessage,
+  BUBBLE_PIXELS, BUBBLE_SETTINGS_KEY, DEFAULT_BUBBLE_SETTINGS, embedFramerAllowed, parseBubbleSettings, parseHostToEmbedMessage,
+  type BubbleSettings, type EmbedLayout, type EmbedSurface, type EmbedToHostMessage,
 } from '../../shared/embed';
 
 const hasHost = () => window.parent !== window;
@@ -21,6 +21,22 @@ function post(message: Outgoing) {
   const payload = { source: 'project-shelf-embed', ...message };
   try { window.parent.postMessage(payload, parentOrigin() ?? '*'); }
   catch { window.parent.postMessage(payload, '*'); }
+}
+
+/**
+ * False when something other than the intended host framed the page. A page that is not framed at all cannot
+ * be clickjacked, so it keeps working for manual testing. Where `ancestorOrigins` is missing (Firefox) the
+ * server's `frame-ancestors` header is the only guard, because the parent cannot be identified from here.
+ */
+export function framerTrusted(surface: EmbedSurface, pageUrl: URL | null): boolean {
+  if (!hasHost()) return true;
+  const ancestors = location.ancestorOrigins as DOMStringList | undefined;
+  return !ancestors || embedFramerAllowed(surface, pageUrl, ancestors[0] ?? '');
+}
+
+/** For a refused frame: asks the host to draw nothing, without listening to it or touching its settings. */
+export function announceHidden() {
+  post({ type: 'layout', layout: 'hidden' });
 }
 
 function readStored(): BubbleSettings {

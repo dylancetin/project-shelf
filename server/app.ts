@@ -18,6 +18,7 @@ import { authorizeMcp, handleAgentMcp, mcpCredential } from './agent-mcp';
 import type { T3Threads } from './t3-threads';
 import { projectTunnel, TunnelManager, type TunnelOptions } from './tunnels';
 import { tunnelPort } from '../shared/tunnels';
+import { isLoopbackHostname } from '../shared/hostnames';
 import { effectivePort, resolveRuntimeTargets, type RuntimeTargetsResponse } from '../shared/runtime-targets';
 import { EMBED_PAGE, embedFramingPolicy } from './embed';
 
@@ -269,11 +270,12 @@ export async function createApp(options: AppOptions) {
     if (page.protocol !== 'http:' && page.protocol !== 'https:') throw new ApiError(400, 'url must be an absolute http or https address');
     // Only a preview on this port can match, so skip checking every preview's systemd unit and listener.
     const agentServersOnPort = await agentServers.list(effectivePort(page));
+    const reached = new URL(c.req.url);
     const targets = resolveRuntimeTargets(page, {
       projects: store.list().map(project => processes.project(project)),
       agentServers: agentServersOnPort,
       hostnames: store.settings().hostnames,
-      panel: { port: c.env.panelPort ?? null, origins: [new URL(c.req.url).origin, TRUSTED_PANEL_ORIGIN] },
+      panel: { port: c.env.panelPort ?? null, origins: [reached.origin, TRUSTED_PANEL_ORIGIN], loopback: isLoopbackHostname(reached.hostname) },
     });
     return json({ targets } satisfies RuntimeTargetsResponse);
   });
@@ -421,7 +423,7 @@ export async function createApp(options: AppOptions) {
   router.notFound(c => {
     if (c.req.path === '/api' || c.req.path.startsWith('/api/')) throw new ApiError(404, 'API route not found');
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed');
-    return serveStatic(c.req.raw, options.staticDir, () => embedFramingPolicy(store.settings(), store.list()));
+    return serveStatic(c.req.raw, options.staticDir, () => embedFramingPolicy(new URL(c.req.url), store.settings(), store.list()));
   });
 
   async function fetch(request: Request, server?: { readonly port: number | undefined }): Promise<Response> {

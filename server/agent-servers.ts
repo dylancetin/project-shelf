@@ -154,8 +154,11 @@ export class AgentServers {
   async restart(id: string): Promise<AgentServer> {
     return this.locked(async () => {
       const record = this.require(id);
+      // A tunnel never outlives the process it exposes. Once the old one is stopped, whatever listens on this
+      // port next (nothing, or another program when the restart is refused) is not what the link was opened for.
       try { await this.supervisor.stop(record); }
       catch (error) { throw new ApiError(502, `Agent server ${id} could not be stopped, so it was not restarted: ${errorMessage(error)}`); }
+      finally { await this.tunnels?.stop(agentTunnel(id)); }
       // Keep the URL stable. Never kill a program that took the port while the
       // preview was down; record why it stays stopped instead.
       try { Bun.listen({ hostname: '::', port: record.port, socket: { data() {} } }).stop(true); }

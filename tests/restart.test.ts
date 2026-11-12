@@ -177,15 +177,44 @@ setInterval(() => {}, 1000);` });
     expect(await runs()).toHaveLength(1);
   });
 
+  test('a restart that start would refuse leaves the running process alone', async () => {
+    const item = add({ prodCommand: '', directory: path.join(root, 'work') });
+    await files(root, { 'work/.keep': '' });
+    await post(item.id, 'start', { mode: 'dev' });
+    const before = await runningAs(item.id, 'dev', 1);
+    const untouched = async () => {
+      expect(app.processes.runtime(item.id)).toMatchObject({ status: 'running', mode: 'dev', pid: before.leader });
+      expect(await processAlive(before.leader)).toBe(true);
+      expect(await processAlive(before.child)).toBe(true);
+      expect(await runs()).toHaveLength(1);
+    };
+
+    const noCommand = await post(item.id, 'restart', { mode: 'prod' });
+    expect(noCommand.status).toBe(400);
+    expect((await noCommand.json()).error).toContain('production command');
+    await untouched();
+
+    await cleanup(path.join(root, 'work'));
+    const noDirectory = await post(item.id, 'restart', {});
+    expect(noDirectory.status).toBe(400);
+    expect((await noDirectory.json()).error).toContain('Directory does not exist');
+    await untouched();
+    expect(app.processes.logs(item.id).some(line => line.text.startsWith('Stopping'))).toBe(false);
+  });
+
   test('keeps the same-origin mutation guard: cross-origin restarts are refused and change nothing', async () => {
     const item = add();
     await post(item.id, 'start', { mode: 'dev' });
     const before = await runningAs(item.id, 'dev', 1);
+    // Another dev server on the same machine is cross-origin too. A body-less POST needs no CORS preflight.
     const foreign: Record<string, string>[] = [{ Origin: 'https://evil.example' }, { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' },
-      { Origin: 'http://dev-page.example:5173' }, { 'Sec-Fetch-Site': 'cross-site' }];
+      { Origin: 'http://dev-page.example:5173' }, { Origin: 'http://beelinkk:5173' }, { Origin: 'http://beelinkk:5173', 'Sec-Fetch-Site': 'same-site' },
+      { Origin: 'null' }, { 'Sec-Fetch-Site': 'cross-site' }];
     for (const headers of foreign) {
-      const response = await post(item.id, 'restart', {}, headers);
-      expect(response.status).toBe(403);
+      for (const body of [{}, undefined]) {
+        const response = await post(item.id, 'restart', body, headers);
+        expect(response.status).toBe(403);
+      }
     }
     expect(app.processes.runtime(item.id).pid).toBe(before.leader);
     expect(await runs()).toHaveLength(1);
@@ -201,13 +230,29 @@ describe('restarting agent previews over HTTP', () => {
   beforeEach(async () => {
     root = await fixture();
     supervisor = new FakeAgentSupervisor();
-    app = await createApp({ dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, agentSupervisor: supervisor, t3Threads: activeThreads });
+    app = await createApp({
+      dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, agentSupervisor: supervisor, t3Threads: activeThreads,
+      tunnelOptions: { binary: await fakeCloudflared(root), startTimeoutMs: 3000, stopGraceMs: 150 },
+    });
   });
   afterEach(async () => { await app.close(); await cleanup(root); });
 
+  async function preview() {
+    return app.agentServers.add({ name: 'Preview', cwd: root, command: 'fixture', threadId: 'fixture-thread' });
+  }
+  async function tunneled() {
+    const created = await preview();
+    expect((await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}))).status).toBe(200);
+    const [launch = ''] = (await readFile(path.join(root, 'cloudflared.log'), 'utf8')).trim().split('\n');
+    const pid = Number(launch.split(' ')[0]);
+    expect(await processAlive(pid)).toBe(true);
+    return { created, pid };
+  }
+  const restart = (id: string) => app.fetch(request(`/api/agent-servers/${id}/restart`, 'POST', {}));
+
   test('runs the existing in-place restart: same ID, port and URL, one more start', async () => {
-    const created = await app.agentServers.add({ name: 'Preview', cwd: root, command: 'fixture', threadId: 'fixture-thread' });
-    const response = await app.fetch(request(`/api/agent-servers/${created.id}/restart`, 'POST', {}));
+    const created = await preview();
+    const response = await restart(created.id);
     expect(response.status).toBe(200);
     const { server } = await response.json();
     expect(server).toMatchObject({ id: created.id, port: created.port, url: created.url, unit: created.unit, status: 'running', ready: true });
@@ -217,13 +262,48 @@ describe('restarting agent previews over HTTP', () => {
     expect(supervisor.starts).toBe(3);
   });
 
+  test('closes the Cloudflare tunnel with the old process', async () => {
+    const { created, pid } = await tunneled();
+    const response = await restart(created.id);
+    expect(response.status).toBe(200);
+    expect((await response.json()).server.tunnel).toBeNull();
+    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
+    expect(await processAlive(pid)).toBe(false);
+    expect(supervisor.starts).toBe(2);
+  });
+
+  test('a restart refused because another program took the port still leaves no tunnel to it', async () => {
+    const { created, pid } = await tunneled();
+    const squatter = Bun.listen({ hostname: '::', port: created.port, socket: { data() {} } });
+    try {
+      const response = await restart(created.id);
+      expect(response.status).toBe(409);
+      expect(supervisor.starts).toBe(1);
+      expect(supervisor.units.size).toBe(0);
+    } finally { squatter.stop(true); }
+    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
+    expect(await processAlive(pid)).toBe(false);
+  });
+
+  test('a preview that could not be stopped has its tunnel closed too, since its state is unknown', async () => {
+    const { created, pid } = await tunneled();
+    supervisor.stop = async () => { throw new Error('systemctl stop failed'); };
+    expect((await restart(created.id)).status).toBe(502);
+    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
+    expect(await processAlive(pid)).toBe(false);
+  });
+
   test('reports an unknown preview, and refuses cross-origin restarts without restarting', async () => {
-    const created = await app.agentServers.add({ name: 'Preview', cwd: root, command: 'fixture', threadId: 'fixture-thread' });
+    const { created, pid } = await tunneled();
     expect((await app.fetch(request(`/api/agent-servers/${crypto.randomUUID()}/restart`, 'POST', {}))).status).toBe(404);
-    const foreign: Record<string, string>[] = [{ Origin: 'https://evil.example' }, { Origin: 'http://dev-page.example:5173' }, { 'Sec-Fetch-Site': 'same-site' }];
+    const foreign: Record<string, string>[] = [{ Origin: 'https://evil.example' }, { Origin: 'http://dev-page.example:5173' }, { Origin: 'http://beelinkk:5173' },
+      { Origin: 'http://beelinkk:5173', 'Sec-Fetch-Site': 'same-site' }, { Origin: 'null' }, { 'Sec-Fetch-Site': 'same-site' }];
     for (const headers of foreign) {
-      expect((await app.fetch(request(`/api/agent-servers/${created.id}/restart`, 'POST', {}, headers))).status).toBe(403);
+      for (const body of [{}, undefined]) {
+        expect((await app.fetch(request(`/api/agent-servers/${created.id}/restart`, 'POST', body, headers))).status).toBe(403);
+      }
     }
     expect(supervisor.starts).toBe(1);
+    expect(await processAlive(pid)).toBe(true);
   });
 });
