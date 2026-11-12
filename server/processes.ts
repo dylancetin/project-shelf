@@ -4,6 +4,8 @@ import type { LogLine, Project, RunMode } from '../shared/types';
 import { ApiError, errorMessage } from './errors';
 import { canonicalDirectory } from './paths';
 import type { ProjectData } from './store';
+import { groupAlive, signalGroup } from './process-groups';
+import { projectTunnel, type TunnelManager } from './tunnels';
 
 type Runtime = Project['runtime'];
 interface ManagedProcess {
@@ -18,22 +20,6 @@ interface ManagedProcess {
 
 const EMPTY_RUNTIME: Runtime = { status: 'stopped', mode: null, pid: null, startedAt: null, exitCode: null };
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-function groupAlive(pid: number): boolean {
-  try { process.kill(-pid, 0); return true; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
-}
-
-function signalGroup(pid: number | null, signal: NodeJS.Signals): void {
-  if (!pid) return;
-  try { process.kill(-pid, signal); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
-      // Fall back to the direct child if a platform cannot signal process groups.
-      try { process.kill(pid, signal); } catch { /* Already exited. */ }
-    }
-  }
-}
 
 export interface ProcessOptions {
   maxLogLines?: number;
@@ -65,7 +51,7 @@ export class ProcessManager {
   private readonly stopGraceMs: number;
   private readonly maxProcesses: number;
 
-  constructor(options: ProcessOptions = {}) {
+  constructor(options: ProcessOptions = {}, private tunnels?: TunnelManager) {
     this.maxLogLines = options.maxLogLines ?? 500;
     this.maxLineLength = options.maxLineLength ?? 4000;
     this.stopGraceMs = options.stopGraceMs ?? 1800;
@@ -77,7 +63,7 @@ export class ProcessManager {
   }
 
   project(data: ProjectData): Project {
-    return { ...data, runtime: this.runtime(data.id) };
+    return { ...data, runtime: { ...this.runtime(data.id), tunnel: this.tunnels?.get(projectTunnel(data.id)) ?? null } };
   }
 
   logs(id: string): LogLine[] {
@@ -146,6 +132,11 @@ export class ProcessManager {
       record.runtime.exitCode = exitCode;
       record.runtime.status = record.cancelled || exitCode === 0 ? 'stopped' : 'failed';
       this.log(project.id, 'system', record.cancelled ? 'Stopped' : `Command exited${exitCode === null ? ' after a signal' : ` with code ${exitCode}`}`);
+      // A tunnel never outlives the command it exposes, whether stopped or exited.
+      if (this.tunnels?.get(projectTunnel(project.id))) {
+        this.log(project.id, 'system', 'Closing Cloudflare tunnel');
+        await this.tunnels.stop(projectTunnel(project.id));
+      }
     }
   }
 

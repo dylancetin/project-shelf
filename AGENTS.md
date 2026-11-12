@@ -37,6 +37,7 @@ The smoke script accepts a different base URL: `bun scripts/smoke.ts http://127.
 | `server/store.ts` | SQLite storage and settings defaults |
 | `server/processes.ts` | Process groups, lifecycle state, log buffers, shutdown |
 | `server/launch.ts` | Local HTTP readiness checks before project navigation |
+| `server/tunnels.ts`, `shared/tunnels.ts`, `src/Tunnel.tsx` | Cloudflare quick tunnels (`cloudflared`) for running projects and agent previews; closed whenever their target stops |
 | `server/scanner.ts` | Recursive discovery and command/port inference |
 | `server/paths.ts`, `server/logos.ts` | Filesystem boundaries, copying, image discovery/serving |
 | `server/bookmarks.ts`, `server/validation.ts` | Bookmark parsing and request validation |
@@ -74,6 +75,7 @@ The checked-in systemd unit uses absolute paths for this machine, including Bun,
 - Start commands only on an explicit start request. Development, build-only, and build-then-production are distinct operations. A failed build must prevent the production command from running.
 - Each managed command has an isolated process group. Stop, deletion, and server shutdown must clean up descendants, with bounded graceful termination and escalation. Do not kill processes merely because they occupy a port.
 - Do not leak the panel's own `PORT`, `API_PORT`, or database configuration into managed projects. Honor each project's configured port and run mode. Explicit command-level environment assignments must still work.
+- A Cloudflare quick tunnel never outlives the project command or agent preview it exposes: process exit, Stop, deletion, and panel shutdown close it. Tunnels run as their own process groups and are only opened on an explicit request.
 - Bound retained log output and preserve stdout/stderr distinction. Runtime status must reflect actual managed process state, not URL reachability.
 - Registration deletion removes a database entry, **never project files**. File duplication must not overwrite an existing destination; omit dependencies, Git history, and generated/cache folders.
 - Enforce filesystem containment and symlink boundaries for logos and static files. A supplied image path must not expose arbitrary host files.

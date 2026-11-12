@@ -16,6 +16,8 @@ import { AgentServers } from './agent-servers';
 import type { AgentSupervisor } from './agent-supervisor';
 import { authorizeMcp, handleAgentMcp, mcpCredential } from './agent-mcp';
 import type { T3Threads } from './t3-threads';
+import { projectTunnel, TunnelManager, type TunnelOptions } from './tunnels';
+import { tunnelPort } from '../shared/tunnels';
 
 const MAX_BODY = 5 * 1024 * 1024;
 const JSON_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -32,6 +34,7 @@ export interface AppOptions {
   t3Threads?: T3Threads;
   /** Interval for removing agent previews whose T3 thread is settled; disabled when unset. */
   agentThreadCheckMs?: number;
+  tunnelOptions?: TunnelOptions;
 }
 
 export function json(data: unknown, status = 200): Response {
@@ -113,8 +116,9 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 
 export async function createApp(options: AppOptions) {
   const store = new Store(options.dbPath, options.initialSettings);
-  const processes = new ProcessManager(options.processOptions);
-  const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads);
+  const tunnels = new TunnelManager(options.tunnelOptions);
+  const processes = new ProcessManager(options.processOptions, tunnels);
+  const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads, tunnels);
   const agentToken = mcpCredential(options.dbPath);
   let scanning: ReturnType<typeof scanRoots> | null = null;
   let closing = false;
@@ -244,6 +248,8 @@ export async function createApp(options: AppOptions) {
   router.get('/api/agent-servers', async () => json({ servers: await agentServers.list() }));
   router.get('/api/agent-servers/:id/logs', async c => json({ logs: await agentServers.logs(c.req.param('id')) }));
   router.delete('/api/agent-servers/:id', async c => json(await agentServers.delete(c.req.param('id'))));
+  router.post('/api/agent-servers/:id/tunnel', async c => json({ tunnel: await agentServers.openTunnel(c.req.param('id')) }));
+  router.delete('/api/agent-servers/:id/tunnel', async c => json(await agentServers.closeTunnel(c.req.param('id'))));
   router.get('/api/extension/bridge', () => {
     // Inert same-origin document. Only the user's host-authorized extension
     // injects its isolated content script; this page exposes no message API.
@@ -284,7 +290,7 @@ export async function createApp(options: AppOptions) {
     return json(importBookmarks(store, html, input.localOnly !== false));
   });
 
-  const projectRoutes = ['/api/projects/:id', '/api/projects/:id/:action{start|launch|stop|logs|duplicate|logos|logo}'];
+  const projectRoutes = ['/api/projects/:id', '/api/projects/:id/:action{start|launch|stop|logs|duplicate|logos|logo|tunnel}'];
   router.on('ALL', projectRoutes, async (c, next) => {
     // Hono's parameter decoder tolerates malformed escapes. Require a valid,
     // exactly-once decode of the raw ID instead, as the API has always done.
@@ -316,6 +322,26 @@ export async function createApp(options: AppOptions) {
     // a slow launch and concurrent opens reuse the same development process.
     await waitForDevelopment(launched, processes, request.signal, () => closing, options.launchOptions);
     return json({ project: processes.project(requireProject(id)) });
+  });
+
+  router.post('/api/projects/:id/tunnel', async c => {
+    const id = c.get('projectId');
+    const input = await body(c.req.raw);
+    if (Object.keys(input).length) throw new ApiError(400, 'Opening a tunnel does not accept any fields');
+    const opening = await locked(id, async () => {
+      if (closing) throw new ApiError(503, 'The server is shutting down');
+      const project = requireProject(id);
+      if (project.kind !== 'project') throw new ApiError(400, 'Services are links and cannot be tunneled');
+      const runtime = processes.runtime(id);
+      if (runtime.status !== 'running' || runtime.mode === 'build') throw new ApiError(409, 'Start development or production before opening a Cloudflare tunnel');
+      const port = tunnelPort(project);
+      if (!port) throw new ApiError(400, 'Configure a project port or an address with a port before opening a tunnel');
+      // Wrapped so the mutation lock is released while Cloudflare connects; Stop
+      // and Delete can still run and close a tunnel that is starting.
+      return { ready: tunnels.start(projectTunnel(id), port) };
+    });
+    const tunnel = await opening.ready;
+    return json({ project: processes.project(requireProject(id)), tunnel });
   });
 
   router.on('GET', projectRoutes, async (c, next) => {
@@ -359,6 +385,10 @@ export async function createApp(options: AppOptions) {
     await processes.stop(c.get('projectId'));
     return json({ project: processes.project(c.get('project')) });
   });
+  router.delete('/api/projects/:id/tunnel', async c => {
+    await tunnels.stop(projectTunnel(c.get('projectId')));
+    return json({ project: processes.project(c.get('project')) });
+  });
   router.post('/api/projects/:id/duplicate', async c => duplicate(c.get('projectId'), await body(c.req.raw)));
   router.on(['POST', 'PATCH', 'DELETE'], projectRoutes, () => { throw new ApiError(405, 'Method not allowed'); });
 
@@ -385,13 +415,14 @@ export async function createApp(options: AppOptions) {
         if (threadTimer) clearInterval(threadTimer);
         await Promise.allSettled([...requests, threadCheck]);
         await processes.close();
+        await tunnels.close();
         store.close();
       })();
     }
     return closePromise;
   }
 
-  return { fetch, close, store, processes, agentServers };
+  return { fetch, close, store, processes, agentServers, tunnels };
 }
 
 async function serveStatic(request: Request, staticDir?: string): Promise<Response> {

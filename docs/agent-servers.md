@@ -15,6 +15,10 @@ Use an ID from `projects_list` for the project tools. `project_run` returns imme
 
 The credential is generated on startup at `${PANEL_DB_PATH}.mcp.json` (default `data/panel.sqlite.mcp.json`, mode 0600). This ignored local file contains `bearerToken`; load it into a local MCP client Authorization header, never commit or share it. To rotate, stop the panel, remove **only this credential file**, restart, and update clients. No global configuration is changed. Requests require a configured Host, no cross-origin browser requests, and a matching bearer token. For agent previews, the same-origin UI may list/read logs and stop runs, but cannot launch arbitrary commands. No unauthenticated agent-preview launch API is added. MCP resources provide authenticated read access for agent clients.
 
+## Cloudflare tunnels
+
+The same-origin UI can open a [Cloudflare quick tunnel](https://try.cloudflare.com) to a ready preview with `POST /api/agent-servers/<id>/tunnel` and close it with `DELETE /api/agent-servers/<id>/tunnel`. The POST resolves once `cloudflared` reports a public `https://*.trycloudflare.com` address and a registered edge connection (45-second limit). The tunnel connects to `http://127.0.0.1:<port>` with the Host header rewritten to `localhost`; it survives `restart` (same port) and is always closed when the preview is deleted, by Stop, `delete`, or settled-thread removal. Listings include the open tunnel as `tunnel` (`null` when closed). Tunnels are in-memory panel child processes and close when the panel stops. Registered projects use `POST`/`DELETE /api/projects/<id>/tunnel` the same way while their development or production command is running.
+
 ## Lifecycle and ownership
 
 Separate SQLite `agent_servers` and `agent_server_requests` tables preserve records and idempotency tombstones; existing Projects are unchanged. The initial persisted local machine identity is structured for future multi-host support; currently all commands execute on beelinkk only. No arbitrary PID/unit adoption or remote execution exists.

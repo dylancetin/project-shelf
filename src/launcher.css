@@ -48,12 +48,13 @@
 .launcher-starting { display: inline-flex; align-items: center; gap: 5px; color: var(--secondary); }
 .launcher-entry .launcher-more { width: 25px; height: 36px; margin-right: 2px; color: var(--quiet); opacity: 0; }
 .launcher-entry:hover .launcher-more, .launcher-entry:focus-within .launcher-more { opacity: 1; }
-.launcher-actions { display: flex; width: 100%; height: 28px; gap: 4px; padding: 0 8px 4px var(--launcher-text-offset); }
+.launcher-actions { display: flex; flex-wrap: wrap; width: 100%; min-height: 28px; gap: 4px; padding: 0 8px 4px var(--launcher-text-offset); }
 .launcher-actions .icon-button { width: 24px; height: 24px; visibility: hidden; pointer-events: none; }
 .launcher-entry:hover .launcher-actions .icon-button, .launcher-entry:focus-within .launcher-actions .icon-button, .launcher-actions .is-running, .launcher-actions .is-working { visibility: visible; pointer-events: auto; }
 .launcher-actions .icon-button:disabled { opacity: .4; }
 .launcher-actions .icon-button:hover:not(:disabled) { background: var(--surface-selected); }
 .launcher-actions .launcher-run.is-running, .launcher-actions .launcher-run.is-running:hover:not(:disabled) { color: var(--green); }
+.launcher-actions .launcher-tunnel.is-running, .launcher-actions .launcher-tunnel.is-running:hover:not(:disabled) { color: var(--tunnel); }
 .launcher-continued { margin-left: 8px; color: var(--quiet); font-size: 11px; font-weight: 400; }
 .launcher-compact .launcher-groups { grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); align-items: start; gap: 28px 30px; }
 .launcher-compact .launcher-group h2 { margin-bottom: 13px; font-size: 13px; }
@@ -61,7 +62,7 @@
 .launcher-compact .launcher-entry { flex-wrap: nowrap; }
 .launcher-compact .launcher-link { flex: 0 1 auto; min-height: 38px; padding: 7px 0 7px 10px; gap: 10px; }
 .launcher-compact .launcher-more { order: 1; flex-shrink: 0; margin-left: auto; }
-.launcher-compact .launcher-actions { flex-shrink: 0; width: auto; height: auto; margin-left: 6px; padding: 0; }
+.launcher-compact .launcher-actions { flex-shrink: 0; flex-wrap: nowrap; width: auto; min-height: 0; margin-left: 6px; padding: 0; }
 .launcher-compact .launcher-link .project-avatar { width: 21px; height: 21px; border-radius: 4px; font-size: 10px; }
 .launcher-compact .launcher-link .project-avatar img { padding: 1px; background: transparent; }
 .launcher-compact .launcher-label { display: block; }
@@ -111,6 +112,8 @@
   .launcher-compact .launcher-link { min-height: 42px; }
   .launcher-compact .launcher-entry .launcher-more { width: 34px; }
   .launcher-footer { margin-top: 23px; padding: 16px 7px 0; justify-content: flex-start; }
+  /* Narrow grid tiles: commands start under the icon so the row fits the tile. */
+  .launcher:not(.launcher-compact) .launcher-actions { padding-left: 7px; padding-right: 4px; }
   .launcher-footer > a { margin-left: 0; }
 }
 /* Hidden compact controls should not shorten names before interaction. */
@@ -123,12 +126,17 @@
   .launcher-compact .launcher-entry:not(:hover):not(:focus-within) .launcher-more { width: 0; margin: 0; pointer-events: none; }
 }
 @media (hover: none), (pointer: coarse) {
+  .agent-server-actions .icon-button { width: 38px; height: 38px; }
   .launcher-entry .launcher-drag-handle { opacity: 1; width: 24px; }
   .launcher-entry .launcher-more { opacity: 1; }
-  .launcher-actions, .launcher-compact .launcher-actions { height: 36px; padding-bottom: 4px; gap: 6px; }
-  .launcher-compact .launcher-actions { height: auto; padding: 0; }
+  .launcher-actions, .launcher-compact .launcher-actions { min-height: 36px; padding-bottom: 4px; gap: 6px; }
+  .launcher-compact .launcher-actions { min-height: 0; padding: 0; }
   .launcher-actions .icon-button { width: 32px; height: 32px; visibility: visible; pointer-events: auto; }
   .launcher-actions .icon-button:disabled { opacity: .4; }
+}
+@media (max-width: 540px) and ((hover: none) or (pointer: coarse)) {
+  .launcher:not(.launcher-compact) .launcher-actions { gap: 2px; }
+  .launcher:not(.launcher-compact) .launcher-actions .icon-button { width: 30px; }
 }
 @media (prefers-reduced-motion: reduce) { .launcher-entry { transition: none !important; } }
 .agent-servers { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
@@ -148,9 +156,13 @@ a.agent-thread:hover { color: var(--ink); }
 a.agent-thread:hover span { text-decoration: underline; text-underline-offset: 2px; }
 .agent-status { flex: none; text-align: right; white-space: nowrap; }
 .agent-status.is-ready { color: var(--green); }
-.agent-server-actions { display: flex; align-items: center; gap: 16px; margin-top: 9px; }
-.agent-server-actions .text-button { font-size: 12px; }
-.agent-unavailable { color: var(--quiet); opacity: .6; font-size: 12px; }
+.agent-server-actions { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 6px 0 0 -6px; }
+.agent-server-actions .icon-button { width: 30px; height: 30px; color: var(--secondary); }
+.agent-server-actions .icon-button:hover:not(:disabled), .agent-server-actions .icon-button.selected { background: var(--surface-selected); color: var(--ink); }
+.agent-server-actions .icon-button:disabled { opacity: .4; }
+.agent-tunnel-link { min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tunnel); font-size: 11px; line-height: 1.6; }
+.agent-tunnel-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.tunnel-toggle.is-running, .tunnel-toggle.is-running:hover:not(:disabled), .agent-server-actions .tunnel-toggle.is-running { color: var(--tunnel); }
 .agent-message { margin: 6px 0; }
 .agent-log-details { margin-top: 10px; overflow-wrap: anywhere; }
 .agent-log-details code { white-space: pre-wrap; }

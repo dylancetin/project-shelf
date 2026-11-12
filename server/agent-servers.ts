@@ -7,6 +7,8 @@ import { ApiError, errorMessage } from './errors';
 import type { Store } from './store';
 import { SystemdAgentSupervisor, type AgentSupervisor } from './agent-supervisor';
 import { T3StateThreads, T3_THREAD_ID, type T3Thread, type T3Threads } from './t3-threads';
+import { agentTunnel, type TunnelManager } from './tunnels';
+import type { TunnelState } from '../shared/tunnels';
 
 const INACTIVE_THREADS = new Set<AgentServerThread['status']>(['settled', 'archived', 'deleted']);
 
@@ -16,7 +18,7 @@ let allocation: Promise<unknown> = Promise.resolve();
 
 export class AgentServers {
   readonly machine: { id: string; name: string };
-  constructor(private store: Store, private supervisor: AgentSupervisor = new SystemdAgentSupervisor(), private threads: T3Threads = new T3StateThreads()) {
+  constructor(private store: Store, private supervisor: AgentSupervisor = new SystemdAgentSupervisor(), private threads: T3Threads = new T3StateThreads(), private tunnels?: TunnelManager) {
     store.db.exec(`CREATE TABLE IF NOT EXISTS agent_servers (
       id TEXT PRIMARY KEY, request_key TEXT UNIQUE NOT NULL, port INTEGER UNIQUE NOT NULL, data TEXT NOT NULL
     ); CREATE TABLE IF NOT EXISTS agent_server_requests (request_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);`);
@@ -78,7 +80,7 @@ export class AgentServers {
     return { ...record, machine: this.machine.name, pid: state.pid, status: state.status,
       diagnostic: record.launchError || `${state.diagnostic}${!ready && state.status === 'running' ? '; waiting for an owned HTTP listener on the assigned port, bound to 0.0.0.0' : ''}`, ready,
       url: `http://${this.store.settings().defaultHostname || this.machine.name}:${record.port}/`, logsUrl: `/api/agent-servers/${record.id}/logs`,
-      thread: this.threadView(record, threads) };
+      thread: this.threadView(record, threads), tunnel: this.tunnels?.get(agentTunnel(record.id)) ?? null };
   }
   async list() {
     const records = this.records().map(record => this.require(record.id));
@@ -173,6 +175,22 @@ export class AgentServers {
     });
   }
 
+  /** Opens a Cloudflare quick tunnel to a ready preview's port; resolves once its public URL works. */
+  async openTunnel(id: string): Promise<TunnelState> {
+    if (!this.tunnels) throw new ApiError(503, 'Cloudflare tunnels are not available on this server');
+    const tunnels = this.tunnels;
+    const record = this.require(id);
+    if (!tunnels.get(agentTunnel(id)) && !(await this.view(record)).ready) throw new ApiError(409, 'Wait until the preview is ready before opening a Cloudflare tunnel');
+    // A Stop that lands while readiness was checked wins; never tunnel a deleted preview.
+    this.require(id);
+    return tunnels.start(agentTunnel(id), record.port);
+  }
+  async closeTunnel(id: string) {
+    this.require(id);
+    await this.tunnels?.stop(agentTunnel(id));
+    return { ok: true };
+  }
+
   async delete(id: string) {
     return this.locked(async () => {
       const row = this.records().find(record => record.id === id);
@@ -183,6 +201,8 @@ export class AgentServers {
         this.store.db.query('UPDATE agent_server_requests SET deleted = 1 WHERE request_key = ?').run(record.requestKey);
         this.store.db.query('DELETE FROM agent_servers WHERE id = ?').run(id);
       })();
+      // Stopping a preview always closes its public tunnel too.
+      await this.tunnels?.stop(agentTunnel(id));
       return { ok: true };
     });
   }

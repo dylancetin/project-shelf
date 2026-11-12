@@ -1,4 +1,5 @@
 import type { SearchEngine } from './search';
+import type { TunnelState } from './tunnels';
 
 export type ProjectKind = 'project' | 'service';
 export type RunMode = 'dev' | 'prod' | 'build';
@@ -22,7 +23,7 @@ export interface Project {
   hidden: boolean;
   createdAt: string;
   updatedAt: string;
-  runtime: { status: RunStatus; mode: RunMode | null; pid: number | null; startedAt: string | null; exitCode: number | null };
+  runtime: { status: RunStatus; mode: RunMode | null; pid: number | null; startedAt: string | null; exitCode: number | null; tunnel?: TunnelState | null };
 }
 export interface Settings { roots: string[]; hostnames: string[]; defaultHostname: string; defaultSearchEngine: SearchEngine; lastScanAt: string | null }
 export interface ScanResult { added: number; existing: number; scanned: number; errors: string[] }

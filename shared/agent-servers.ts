@@ -1,3 +1,5 @@
+import type { TunnelState } from './tunnels';
+
 export interface AgentServerRecord {
   id: string;
   machineId: string;
@@ -36,6 +38,8 @@ export interface AgentServer extends AgentServerRecord {
   logsUrl: string;
   diagnostic: string;
   thread: AgentServerThread | null;
+  /** Open Cloudflare quick tunnel to this preview's port. */
+  tunnel: TunnelState | null;
 }
 
 export interface AddAgentServer {

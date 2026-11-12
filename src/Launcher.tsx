@@ -7,7 +7,9 @@ import type { Project, ProjectKind, RunMode } from '../shared/types';
 import type { SearchEngine } from '../shared/search';
 import { bookmarkUrl, searchBookmarks } from '../shared/browser-bookmarks';
 import { moveWithinSubset } from '../shared/ordering';
-import { isActive, projectUrl } from './api';
+import { api, isActive, projectUrl } from './api';
+import { tunnelPort } from '../shared/tunnels';
+import { TunnelControls } from './Tunnel';
 import { IconButton, ProjectAvatar, ProjectLink, Spinner, type OpenProject } from './components';
 import './launcher.css';
 import { useServerAvailable } from './connection';
@@ -21,7 +23,7 @@ type Destination = { project: Project; url: string };
 type Layout = 'compact' | 'grid';
 const layoutKey = 'project-shelf.home-layout';
 
-export function Launcher({ projects, loading, failed, searchRef, searchContainer, onDetails, busy, launching, onOpen, onAction, onOrganize, onReorder, ordering, defaultSearchEngine }: {
+export function Launcher({ projects, loading, failed, searchRef, searchContainer, onDetails, busy, launching, onOpen, onAction, onProjectChange, onOrganize, onReorder, ordering, defaultSearchEngine }: {
   projects: Project[];
   loading: boolean;
   failed: boolean;
@@ -32,6 +34,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   launching: Set<string>;
   onOpen: OpenProject;
   onAction: (project: Project, mode: RunMode | 'stop') => void;
+  onProjectChange: (project: Project) => void;
   onOrganize: (kind: ProjectKind) => void;
   onReorder: (kind: ProjectKind, ids: string[], previousIds: string[]) => Promise<void>;
   ordering: boolean;
@@ -101,7 +104,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   const shelfColumns: ShelfColumn[] = loading ? [] : columns.map(group => ({
     id: `shelf:${group.id}`, title: group.title,
     actions: group.title !== 'Favorites' && group.items.length > 0 ? <button className="text-button" onClick={() => onOrganize(group.title === 'Services' ? 'service' : 'project')} aria-label={`Organize ${group.title.toLowerCase()}`}><ArrowsDownUp size={12} />Organize</button> : undefined,
-    content: <><SortableContext items={group.items.map(item => shelfItemId(item.project.id))} strategy={verticalListSortingStrategy}><div className="launcher-grid">{group.items.map(destination => <DestinationLink key={destination.project.id} destination={destination} group={group.id.replace(/-\d+$/, '')} orderDisabled={Boolean(query) || ordering || !available} onPrepareDrag={() => prepareDrag(group.id.replace(/-\d+$/, ''))} busy={busy.has(destination.project.id)} launching={launching.has(destination.project.id)} onOpen={onOpen} onAction={mode => onAction(destination.project, mode)} onDetails={() => onDetails(destination.project.id)} />)}</div></SortableContext>{group.id === 'projects-0' && <AgentServers state={agentServers} query={query} />}</>,
+    content: <><SortableContext items={group.items.map(item => shelfItemId(item.project.id))} strategy={verticalListSortingStrategy}><div className="launcher-grid">{group.items.map(destination => <DestinationLink key={destination.project.id} destination={destination} group={group.id.replace(/-\d+$/, '')} orderDisabled={Boolean(query) || ordering || !available} onPrepareDrag={() => prepareDrag(group.id.replace(/-\d+$/, ''))} busy={busy.has(destination.project.id)} launching={launching.has(destination.project.id)} onOpen={onOpen} onAction={mode => onAction(destination.project, mode)} onProjectChange={onProjectChange} onDetails={() => onDetails(destination.project.id)} />)}</div></SortableContext>{group.id === 'projects-0' && <AgentServers state={agentServers} query={query} />}</>,
   }));
 
   return <div className={`launcher${layout === 'compact' ? ' launcher-compact' : ''}${bookmarks.provider ? ' launcher-with-bookmarks' : ''}`} data-layout={layout}>
@@ -139,7 +142,7 @@ export function Launcher({ projects, loading, failed, searchRef, searchContainer
   </div>;
 }
 
-function DestinationLink({ destination: { project, url }, group, orderDisabled, onPrepareDrag, onDetails, busy, launching, onOpen, onAction }: { destination: Destination; group: string; orderDisabled: boolean; onPrepareDrag: () => void; onDetails: () => void; busy: boolean; launching: boolean; onOpen: OpenProject; onAction: (mode: RunMode | 'stop') => void }) {
+function DestinationLink({ destination: { project, url }, group, orderDisabled, onPrepareDrag, onDetails, busy, launching, onOpen, onAction, onProjectChange }: { destination: Destination; group: string; orderDisabled: boolean; onPrepareDrag: () => void; onDetails: () => void; busy: boolean; launching: boolean; onOpen: OpenProject; onAction: (mode: RunMode | 'stop') => void; onProjectChange: (project: Project) => void }) {
   const available = useServerAvailable();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: shelfItemId(project.id), data: { type: 'shelf-item', group, kind: project.kind, name: project.name } satisfies ShelfItemDragData, disabled: orderDisabled });
   const active = isActive(project);
@@ -151,6 +154,19 @@ function DestinationLink({ destination: { project, url }, group, orderDisabled, 
     ? `${project.runtime.status === 'stopping' ? 'Stopping' : launching ? 'Starting development for' : 'Working on'} ${project.name}`
     : active ? `${runtimeName} is running — stop ${project.name}`
     : project.devCommand ? `Run development for ${project.name}` : 'Add a development command in project details';
+  const serving = running && project.runtime.mode === 'prod';
+  const tunnelBlocked = !available ? 'Reconnect to open a Cloudflare tunnel'
+    : !tunnelPort(project) ? 'Configure a project port to open a Cloudflare tunnel'
+    : active && project.runtime.mode === 'build' ? 'Wait for the build to finish before opening a tunnel'
+    : project.runtime.status === 'stopping' ? `Wait for ${project.name} to stop`
+    : !active && !project.devCommand ? 'Add a development command in project details' : null;
+  async function openTunnel() {
+    // Starts or reuses development and waits until it answers locally; production is used as is.
+    if (!serving) onProjectChange((await api.launch(project.id)).project);
+    const result = await api.openTunnel(project.id);
+    onProjectChange(result.project);
+    return result.tunnel;
+  }
   return <div ref={setNodeRef} className={`launcher-entry${project.kind === 'project' ? ' launcher-project' : ''}${isDragging ? ' launcher-entry-dragging' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
     <button type="button" ref={setActivatorNodeRef} className="icon-button launcher-drag-handle" {...attributes} {...listeners} disabled={orderDisabled} aria-label={`Reorder ${project.name}`} title={orderDisabled ? 'Clear search and reconnect to reorder; wait if an order is saving' : 'Drag to change saved order; Space and arrow keys also work'} onPointerDownCapture={onPrepareDrag} onMouseDown={event => { onPrepareDrag(); listeners?.onMouseDown?.(event); }} onTouchStart={event => { onPrepareDrag(); listeners?.onTouchStart?.(event); }} onKeyDown={event => { if (event.key === ' ' || event.key === 'Enter') onPrepareDrag(); listeners?.onKeyDown?.(event); }}><DotsSixVertical size={15} /></button>
     <ProjectLink project={project} onOpen={onOpen} busy={launching} className="launcher-link" title={`${project.name}\n${project.kind === 'project' ? 'Start development, then open ' : ''}${url}`} aria-label={project.name}>
@@ -164,6 +180,7 @@ function DestinationLink({ destination: { project, url }, group, orderDisabled, 
       </IconButton>
       <IconButton disabled={!available || working || active || !project.buildCommand} label={`Build ${project.name}`} title={project.buildCommand ? `Build ${project.name}` : 'Add a build command in project details'} onClick={() => onAction('build')}><Hammer size={15} aria-hidden="true" /></IconButton>
       <IconButton disabled={!available || working || active || !project.prodCommand} label={`Run production for ${project.name}`} title={project.prodCommand ? `Build and run production for ${project.name}` : 'Add a production command in project details'} onClick={() => onAction('prod')}><RocketLaunch size={15} aria-hidden="true" /></IconButton>
+      <TunnelControls name={project.name} tunnel={project.runtime.tunnel} disabledReason={tunnelBlocked} className="launcher-tunnel" onOpen={openTunnel} onClose={async () => onProjectChange((await api.closeTunnel(project.id)).project)} />
     </div>}
   </div>;
 }

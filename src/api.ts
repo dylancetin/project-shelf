@@ -1,6 +1,7 @@
 import type { Project, ProjectKind, RunMode, Settings, ScanResult, LogoFile, LogLine } from '../shared/types';
 import { shelfPlatform } from './platform';
 import type { AgentServer } from '../shared/agent-servers';
+import type { TunnelState } from '../shared/tunnels';
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const options: RequestInit = {
@@ -24,6 +25,8 @@ export const api = {
   agentServers: (signal?: AbortSignal) => request<{ servers: AgentServer[] }>('/agent-servers', { signal }),
   stopAgentServer: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   agentLogs: (id: string, signal?: AbortSignal) => request<{ logs: string }>(`/agent-servers/${encodeURIComponent(id)}/logs`, { signal }),
+  openAgentTunnel: (id: string) => request<{ tunnel: TunnelState }>(`/agent-servers/${encodeURIComponent(id)}/tunnel`, body({})),
+  closeAgentTunnel: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}/tunnel`, { method: 'DELETE' }),
   projects: (signal?: AbortSignal) => request<{ projects: Project[] }>('/projects', { signal }),
   reorder: (kind: ProjectKind, ids: string[], previousIds: string[]) => request<{ projects: Project[] }>('/projects/reorder', body({ kind, ids, previousIds })),
   settings: (signal?: AbortSignal) => request<{ settings: Settings }>('/settings', { signal }),
@@ -34,6 +37,8 @@ export const api = {
   start: (id: string, mode: RunMode) => request<{ project: Project }>(`${idPath(id)}/start`, body({ mode })),
   launch: (id: string, signal?: AbortSignal) => request<{ project: Project }>(`${idPath(id)}/launch`, { ...body({}), signal }),
   stop: (id: string) => request<{ project: Project }>(`${idPath(id)}/stop`, body({})),
+  openTunnel: (id: string) => request<{ project: Project; tunnel: TunnelState }>(`${idPath(id)}/tunnel`, body({})),
+  closeTunnel: (id: string) => request<{ project: Project }>(`${idPath(id)}/tunnel`, { method: 'DELETE' }),
   duplicate: (id: string, data: { name: string; directory?: string; copyFiles: boolean }) => request<{ project: Project }>(`${idPath(id)}/duplicate`, body(data)),
   logos: (id: string) => request<{ logos: LogoFile[] }>(`${idPath(id)}/logos`),
   logs: (id: string) => request<{ logs: LogLine[] }>(`${idPath(id)}/logs`),

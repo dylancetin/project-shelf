@@ -117,9 +117,10 @@ export function Dialog({ title, children, onClose, className = '', eyebrow, foot
   </div>;
 }
 
-export function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-  useEffect(() => { const timer = window.setTimeout(onDismiss, 6500); return () => window.clearTimeout(timer); }, [message, onDismiss]);
-  return <div className="toast" role="status"><span className="toast-check"><Check size={16} weight="bold" /></span><span>{message}</span><IconButton label="Dismiss notification" onClick={onDismiss}><X size={16} /></IconButton></div>;
+export function Toast({ message, onDismiss, tone = 'success', action }: { message: ReactNode; onDismiss: () => void; tone?: 'success' | 'error'; action?: ReactNode }) {
+  // Errors and notices with an action stay long enough to read and act on.
+  useEffect(() => { const timer = window.setTimeout(onDismiss, tone === 'error' || action ? 12000 : 6500); return () => window.clearTimeout(timer); }, [message, onDismiss, tone, action]);
+  return <div className={`toast${tone === 'error' ? ' toast-error' : ''}`} role={tone === 'error' ? 'alert' : 'status'}><span className="toast-check">{tone === 'error' ? <WarningCircle size={17} weight="fill" /> : <Check size={16} weight="bold" />}</span><span className="toast-message">{message}</span>{action}<IconButton label="Dismiss notification" onClick={onDismiss}><X size={16} /></IconButton></div>;
 }
 
 export function Field({ label, children, hint, className = '' }: { label: string; children: ReactNode; hint?: string; className?: string }) {

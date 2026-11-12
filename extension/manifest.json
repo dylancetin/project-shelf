@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Project Shelf — New Tab",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "A locally cached Project Shelf in every new tab. No redirect; keep your browser's address bar focus.",
   "minimum_chrome_version": "109",
   "permissions": ["storage", "scripting"],

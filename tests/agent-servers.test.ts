@@ -7,7 +7,7 @@ import { agentEnvironment, SystemdAgentSupervisor, type AgentSupervisor, type Un
 import { Store } from '../server/store';
 import { T3StateThreads } from '../server/t3-threads';
 import type { AgentServerRecord } from '../shared/agent-servers';
-import { cleanup, files, fixture, until } from './helpers';
+import { cleanup, fakeCloudflared, files, fixture, processAlive, until } from './helpers';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -414,3 +414,40 @@ test.skipIf(process.env.SHELF_SYSTEMD_TEST !== '1')('real independent unit survi
     await app.close(); await cleanup(root);
   }
 }, 30000);
+
+test('a ready preview opens a Cloudflare tunnel to its port; Stop closes the tunnel too', async () => {
+  const root = await fixture(); const t3 = await t3Fixture(root); const supervisor = new MockSupervisor();
+  const app = await createApp({ dbPath: `${root}/panel.sqlite`, bootstrap: false, agentSupervisor: supervisor, t3Threads: t3.threads,
+    tunnelOptions: { binary: await fakeCloudflared(root), stopGraceMs: 150 } });
+  try {
+    const server = await app.agentServers.add({ name: 'Tunnel preview', cwd: root, command: 'fixture', threadId: THREAD });
+    const call = (method: string) => app.fetch(new Request(`http://127.0.0.1:4958/api/agent-servers/${server.id}/tunnel`, { method, headers: { Origin: 'http://127.0.0.1:4958' } }));
+    const opened = await call('POST');
+    expect(opened.status).toBe(200);
+    const { tunnel } = await opened.json();
+    expect(tunnel.status).toBe('running');
+    expect(tunnel.url).toMatch(/^https:\/\/fixture-\d+\.trycloudflare\.com$/);
+    const [line] = (await readFile(`${root}/cloudflared.log`, 'utf8')).trim().split('\n');
+    expect(line).toContain(`--url http://127.0.0.1:${server.port}`);
+    expect((await app.agentServers.list())[0]!.tunnel).toEqual(tunnel);
+    const pid = Number(line!.split(' ')[0]);
+    const removed = await app.fetch(new Request(`http://127.0.0.1:4958/api/agent-servers/${server.id}`, { method: 'DELETE', headers: { Origin: 'http://127.0.0.1:4958' } }));
+    expect(removed.status).toBe(200);
+    expect(await processAlive(pid)).toBe(false);
+    expect(app.tunnels.get(`agent:${server.id}`)).toBeNull();
+    expect((await call('POST')).status).toBe(404);
+  } finally { await app.close(); await cleanup(root); }
+});
+
+test('a preview that is not ready is not tunneled', async () => {
+  const root = await fixture(); const t3 = await t3Fixture(root);
+  const supervisor = new MockSupervisor(); supervisor.ready = async () => false;
+  const app = await createApp({ dbPath: `${root}/panel.sqlite`, bootstrap: false, agentSupervisor: supervisor, t3Threads: t3.threads,
+    tunnelOptions: { binary: await fakeCloudflared(root) } });
+  try {
+    const server = await app.agentServers.add({ name: 'Unready preview', cwd: root, command: 'fixture', threadId: THREAD });
+    await expect(app.agentServers.openTunnel(server.id)).rejects.toMatchObject({ status: 409 });
+    expect(await Bun.file(`${root}/cloudflared.log`).exists()).toBe(false);
+    await app.agentServers.delete(server.id);
+  } finally { await app.close(); await cleanup(root); }
+});
