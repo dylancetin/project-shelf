@@ -1,6 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { AgentSupervisor, UnitState } from '../server/agent-supervisor';
 import type { ProjectData } from '../server/store';
+import type { T3Threads } from '../server/t3-threads';
+import type { AgentServerRecord } from '../shared/agent-servers';
 
 export async function fixture(): Promise<string> {
   await mkdir('/tmp/opencode', { recursive: true });
@@ -66,3 +69,24 @@ export async function processAlive(pid: number): Promise<boolean> {
     return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z';
   } catch { return false; }
 }
+
+/** An in-memory stand-in for systemd: units are "running" from start until stop. */
+export class FakeAgentSupervisor implements AgentSupervisor {
+  units = new Map<string, UnitState>();
+  starts = 0;
+  async start(record: AgentServerRecord) {
+    this.starts++;
+    this.units.set(record.unit, { status: 'running', pid: 1000 + this.starts, controlGroup: '/fixture', diagnostic: 'running' });
+  }
+  async state(record: AgentServerRecord): Promise<UnitState> {
+    return this.units.get(record.unit) ?? { status: 'stopped', pid: null, controlGroup: '', diagnostic: 'missing' };
+  }
+  async ready() { return true; }
+  async logs() { return 'fixture stdout'; }
+  async stop(record: AgentServerRecord) { this.units.delete(record.unit); }
+}
+
+/** Every thread ID is an active top-level thread. */
+export const activeThreads: T3Threads = {
+  lookup: ids => new Map(ids.map(id => [id, { id, rootId: id, title: 'Fixture thread', status: 'active', link: null }])),
+};

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import type { RuntimeTargetsResponse } from '../shared/runtime-targets';
 import type { LogLine, LogoFile, Project, RunMode, Settings } from '../shared/types';
 
 // Only registers and runs disposable fixtures; never scans or changes settings.
@@ -348,6 +349,18 @@ setInterval(() => console.log(token + ':' + mode.toUpperCase() + '_TICK'), 250);
     assert.equal(shown.hidden, false);
     assert.equal(shown.runtime.pid, activePID);
     console.log('[smoke] hide/show persistence, validation, and running-process preservation passed');
+    const page = encodeURIComponent('http://beelinkk:43123/demo?page=1');
+    const resolved = await api<RuntimeTargetsResponse>('GET', `/api/runtime-targets?url=${page}`);
+    const target = resolved.targets.find(item => item.kind === 'project' && item.project.id === original.id);
+    assert.equal(target?.kind === 'project' && target.project.runtime.status, 'running', 'The running project must resolve from its page URL');
+    await rejected('GET', '/api/runtime-targets?url=ftp%3A%2F%2Fbeelinkk%2F');
+    assert.ok(activePID, 'The running project needs a PID');
+    const replaced = await api<{ project: Project }>('POST', `/api/projects/${original.id}/restart`, {});
+    assert.notEqual(replaced.project.runtime.pid, activePID, 'Restart must start a new process');
+    assert.equal(alive(activePID), false, 'Restart must not return while the old process group is alive');
+    await running(original.id, 'dev');
+    await poll('restarted dev worker', () => workerPID('dev'), pid => pid !== activePID);
+    console.log('[smoke] runtime-target resolution and in-place restart passed');
     await stop(original.id, 'dev');
     console.log('[smoke] dev start, stdout/stderr logs, and child-process stop passed');
 
@@ -357,7 +370,7 @@ setInterval(() => console.log(token + ':' + mode.toUpperCase() + '_TICK'), 250);
       value.runtime.status === 'stopped' && value.runtime.pid === null);
     assert.equal(built.runtime.exitCode, 0);
     assert.equal(await readFile(join(fixture, 'build-marker'), 'utf8'), token);
-    assert.deepEqual(await events(), ['dev', 'build']);
+    assert.deepEqual(await events(), ['dev', 'dev', 'build']);
     await rm(join(fixture, 'build-marker'));
     const eventOffset = (await events()).length;
     await start(original.id, 'prod');

@@ -2,6 +2,7 @@ import type { Project, ProjectKind, RunMode, Settings, ScanResult, LogoFile, Log
 import { shelfPlatform } from './platform';
 import type { AgentServer } from '../shared/agent-servers';
 import type { TunnelState } from '../shared/tunnels';
+import type { RuntimeTargetsResponse } from '../shared/runtime-targets';
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const options: RequestInit = {
@@ -25,6 +26,7 @@ export const api = {
   agentServers: (signal?: AbortSignal) => request<{ servers: AgentServer[] }>('/agent-servers', { signal }),
   stopAgentServer: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   agentLogs: (id: string, signal?: AbortSignal) => request<{ logs: string }>(`/agent-servers/${encodeURIComponent(id)}/logs`, { signal }),
+  restartAgentServer: (id: string) => request<{ server: AgentServer }>(`/agent-servers/${encodeURIComponent(id)}/restart`, body({})),
   openAgentTunnel: (id: string) => request<{ tunnel: TunnelState }>(`/agent-servers/${encodeURIComponent(id)}/tunnel`, body({})),
   closeAgentTunnel: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}/tunnel`, { method: 'DELETE' }),
   projects: (signal?: AbortSignal) => request<{ projects: Project[] }>('/projects', { signal }),
@@ -36,6 +38,8 @@ export const api = {
   remove: (id: string) => request<{ ok: boolean }>(idPath(id), { method: 'DELETE' }),
   start: (id: string, mode: RunMode) => request<{ project: Project }>(`${idPath(id)}/start`, body({ mode })),
   launch: (id: string, signal?: AbortSignal) => request<{ project: Project }>(`${idPath(id)}/launch`, { ...body({}), signal }),
+  restartProject: (id: string, mode?: 'dev' | 'prod') => request<{ project: Project }>(`${idPath(id)}/restart`, body(mode ? { mode } : {})),
+  runtimeTargets: (pageUrl: string, signal?: AbortSignal) => request<RuntimeTargetsResponse>(`/runtime-targets?url=${encodeURIComponent(pageUrl)}`, { signal }),
   stop: (id: string) => request<{ project: Project }>(`${idPath(id)}/stop`, body({})),
   openTunnel: (id: string) => request<{ project: Project; tunnel: TunnelState }>(`${idPath(id)}/tunnel`, body({})),
   closeTunnel: (id: string) => request<{ project: Project }>(`${idPath(id)}/tunnel`, { method: 'DELETE' }),

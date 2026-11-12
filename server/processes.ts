@@ -238,6 +238,32 @@ export class ProcessManager {
     return this.runtime(id);
   }
 
+  /**
+   * Stop whatever is running, wait for its whole process group to be gone, then start. The mode defaults to the
+   * one the command ran in, except that stopped and build-only runs come back as development.
+   */
+  async restart(project: ProjectData, requested?: Exclude<RunMode, 'build'>): Promise<Project> {
+    if (project.kind !== 'project') throw new ApiError(400, 'Services are links and cannot be started');
+    const previous = this.records.get(project.id);
+    const mode = requested ?? (previous && previous.runtime.status !== 'stopped' && previous.runtime.mode === 'prod' ? 'prod' : 'dev');
+    const group = previous?.groupPid ?? null;
+    if (this.active(project.id)) await this.stop(project.id);
+    // stop() resolves once the shell has exited and its group was signalled; a straggler would still hold the port.
+    if (group && !await this.groupGone(group)) {
+      throw new ApiError(409, 'The previous process group is still shutting down, so it was not restarted. Try again in a moment.');
+    }
+    return this.start(project, mode);
+  }
+
+  private async groupGone(pid: number, timeoutMs = 2000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (groupAlive(pid)) {
+      if (Date.now() >= deadline) return false;
+      await delay(20);
+    }
+    return true;
+  }
+
   forget(id: string): void {
     if (this.active(id)) throw new ApiError(409, 'Stop the project before forgetting it');
     this.records.delete(id);

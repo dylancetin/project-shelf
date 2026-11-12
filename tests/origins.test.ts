@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { createApp } from '../server/app';
 import { startServer } from '../server/index';
-import { DEFAULT_HOSTNAMES } from '../server/store';
+import { DEFAULT_HOSTNAMES } from '../shared/hostnames';
 import { cleanup, fixture, project } from './helpers';
 
 describe('trusted panel mutation origins', () => {

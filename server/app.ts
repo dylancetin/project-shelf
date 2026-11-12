@@ -18,6 +18,8 @@ import { authorizeMcp, handleAgentMcp, mcpCredential } from './agent-mcp';
 import type { T3Threads } from './t3-threads';
 import { projectTunnel, TunnelManager, type TunnelOptions } from './tunnels';
 import { tunnelPort } from '../shared/tunnels';
+import { effectivePort, resolveRuntimeTargets, type RuntimeTargetsResponse } from '../shared/runtime-targets';
+import { EMBED_PAGE, embedFramingPolicy } from './embed';
 
 const MAX_BODY = 5 * 1024 * 1024;
 const JSON_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -246,6 +248,7 @@ export async function createApp(options: AppOptions) {
     });
   });
   router.get('/api/agent-servers', async () => json({ servers: await agentServers.list() }));
+  router.post('/api/agent-servers/:id/restart', async c => json({ server: await agentServers.restart(c.req.param('id')) }));
   router.get('/api/agent-servers/:id/logs', async c => json({ logs: await agentServers.logs(c.req.param('id')) }));
   router.delete('/api/agent-servers/:id', async c => json(await agentServers.delete(c.req.param('id'))));
   router.post('/api/agent-servers/:id/tunnel', async c => json({ tunnel: await agentServers.openTunnel(c.req.param('id')) }));
@@ -257,6 +260,22 @@ export async function createApp(options: AppOptions) {
       headers: { ...JSON_HEADERS, 'Content-Type': 'text/html; charset=utf-8',
         'Content-Security-Policy': "default-src 'none'; frame-ancestors chrome-extension:; base-uri 'none'; form-action 'none'" },
     });
+  });
+  router.get('/api/runtime-targets', async c => {
+    const address = new URL(c.req.url).searchParams.get('url');
+    if (!address) throw new ApiError(400, 'url is required: pass the absolute http(s) address of the page, e.g. /api/runtime-targets?url=http%3A%2F%2Fbeelinkk%3A5173%2F');
+    let page: URL;
+    try { page = new URL(address); } catch { throw new ApiError(400, 'url must be an absolute http or https address'); }
+    if (page.protocol !== 'http:' && page.protocol !== 'https:') throw new ApiError(400, 'url must be an absolute http or https address');
+    // Only a preview on this port can match, so skip checking every preview's systemd unit and listener.
+    const agentServersOnPort = await agentServers.list(effectivePort(page));
+    const targets = resolveRuntimeTargets(page, {
+      projects: store.list().map(project => processes.project(project)),
+      agentServers: agentServersOnPort,
+      hostnames: store.settings().hostnames,
+      panel: { port: c.env.panelPort ?? null, origins: [new URL(c.req.url).origin, TRUSTED_PANEL_ORIGIN] },
+    });
+    return json({ targets } satisfies RuntimeTargetsResponse);
   });
   router.get('/api/projects', () => json({ projects: store.list().map(project => processes.project(project)) }));
   router.post('/api/projects', async c => {
@@ -290,7 +309,7 @@ export async function createApp(options: AppOptions) {
     return json(importBookmarks(store, html, input.localOnly !== false));
   });
 
-  const projectRoutes = ['/api/projects/:id', '/api/projects/:id/:action{start|launch|stop|logs|duplicate|logos|logo|tunnel}'];
+  const projectRoutes = ['/api/projects/:id', '/api/projects/:id/:action{start|launch|stop|restart|logs|duplicate|logos|logo|tunnel}'];
   router.on('ALL', projectRoutes, async (c, next) => {
     // Hono's parameter decoder tolerates malformed escapes. Require a valid,
     // exactly-once decode of the raw ID instead, as the API has always done.
@@ -385,6 +404,13 @@ export async function createApp(options: AppOptions) {
     await processes.stop(c.get('projectId'));
     return json({ project: processes.project(c.get('project')) });
   });
+  router.post('/api/projects/:id/restart', async c => {
+    const request = c.req.raw;
+    const input = request.body === null && !request.headers.has('content-type') ? {} : await body(request);
+    for (const key of Object.keys(input)) if (key !== 'mode') throw new ApiError(400, `Unknown restart field: ${key}`);
+    if (input.mode !== undefined && input.mode !== 'dev' && input.mode !== 'prod') throw new ApiError(400, 'mode must be dev or prod');
+    return json({ project: await processes.restart(c.get('project'), input.mode) });
+  });
   router.delete('/api/projects/:id/tunnel', async c => {
     await tunnels.stop(projectTunnel(c.get('projectId')));
     return json({ project: processes.project(c.get('project')) });
@@ -395,7 +421,7 @@ export async function createApp(options: AppOptions) {
   router.notFound(c => {
     if (c.req.path === '/api' || c.req.path.startsWith('/api/')) throw new ApiError(404, 'API route not found');
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed');
-    return serveStatic(c.req.raw, options.staticDir);
+    return serveStatic(c.req.raw, options.staticDir, () => embedFramingPolicy(store.settings(), store.list()));
   });
 
   async function fetch(request: Request, server?: { readonly port: number | undefined }): Promise<Response> {
@@ -425,7 +451,7 @@ export async function createApp(options: AppOptions) {
   return { fetch, close, store, processes, agentServers, tunnels };
 }
 
-async function serveStatic(request: Request, staticDir?: string): Promise<Response> {
+async function serveStatic(request: Request, staticDir: string | undefined, embedPolicy: () => string): Promise<Response> {
   if (!staticDir) throw new ApiError(404, 'Page not found');
   let requested: string;
   try { requested = decodeURIComponent(new URL(request.url).pathname).replace(/^\//, ''); }
@@ -444,15 +470,18 @@ async function serveStatic(request: Request, staticDir?: string): Promise<Respon
   const relative = path.relative(staticDir, filename).split(path.sep).join('/');
   // Installed apps use Workbox's versioned precache. These headers also make
   // repeat visits fast before a worker takes control (including plain HTTP).
-  // Keep the worker/manifest revalidated so a cached shell can discover updates.
+  // Keep the worker/manifest revalidated so a cached shell can discover updates. The embed page is
+  // revalidated too: its framing policy follows the current settings, and a stale copy would reference
+  // asset hashes from before the last build.
   const cacheControl = relative === 'index.html'
     ? 'private, max-age=0, stale-while-revalidate=86400, stale-if-error=604800'
-    : /^(?:sw\.js|manifest\.webmanifest)$/.test(relative) ? 'no-cache'
+    : relative === EMBED_PAGE || /^(?:sw\.js|manifest\.webmanifest)$/.test(relative) ? 'no-cache'
     : /^assets\/.+-[\w-]{8,}\.[\w.]+$/.test(relative) ? 'public, max-age=31536000, immutable'
     : 'public, max-age=3600, stale-while-revalidate=86400';
   return new Response(request.method === 'HEAD' ? null : file, { headers: {
     'Content-Type': file.type || 'application/octet-stream',
     'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'Cache-Control': cacheControl,
+    ...(relative === EMBED_PAGE ? { 'Content-Security-Policy': embedPolicy() } : {}),
   } });
 }
