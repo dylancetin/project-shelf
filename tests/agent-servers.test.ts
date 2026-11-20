@@ -29,7 +29,7 @@ class MockSupervisor implements AgentSupervisor {
 
 const THREAD = 'fixture-thread';
 
-interface FixtureThread { title?: string; parent?: string; relationship?: 'subagent' | 'fork'; root?: string; settled?: boolean; archived?: boolean; deleted?: boolean }
+interface FixtureThread { title?: string; parent?: string; relationship?: 'subagent' | 'fork'; root?: string; settled?: boolean; archived?: boolean; deleted?: boolean; snoozedUntil?: string }
 
 // A disposable copy of the T3 Code thread projection columns Project Shelf reads.
 async function t3Fixture(root: string) {
@@ -47,6 +47,7 @@ async function t3Fixture(root: string) {
     const payload = {
       id, title, settledOverride: value.settled ? 'settled' : null, settledAt: value.settled ? now : null,
       archivedAt: value.archived ? now : null, deletedAt: value.deleted ? now : null,
+      snoozedAt: value.snoozedUntil ? now : null, snoozedUntil: value.snoozedUntil ?? null,
       lineage: { parentThreadId: value.parent ?? null, relationshipToParent: value.parent ? value.relationship ?? 'subagent' : null, rootThreadId: value.root ?? value.parent ?? id },
     };
     const db = new Database(filename);
@@ -80,6 +81,14 @@ describe('T3 Code thread state', () => {
       expect(result.get('orphan')).toMatchObject({ rootId: 'gone', status: 'missing', link: null });
       expect(['settled', 'archived', 'deleted'].map(id => result.get(id)!.status)).toEqual(['settled', 'archived', 'deleted']);
       expect(result.has('unknown')).toBe(false);
+      // Snoozing does not clear settledOverride; a pending snooze outranks settled, but not archive/delete.
+      const later = new Date(Date.now() + 3_600_000).toISOString(), earlier = new Date(Date.now() - 60_000).toISOString();
+      t3.thread('snoozed-settled', { settled: true, snoozedUntil: later });
+      t3.thread('snoozed-subagent', { parent: 'snoozed-settled' });
+      t3.thread('woken-settled', { settled: true, snoozedUntil: earlier });
+      t3.thread('snoozed-archived', { archived: true, settled: true, snoozedUntil: later });
+      const snoozes = t3.threads.lookup(['snoozed-settled', 'snoozed-subagent', 'woken-settled', 'snoozed-archived']);
+      expect(['snoozed-settled', 'snoozed-subagent', 'woken-settled', 'snoozed-archived'].map(id => snoozes.get(id)!.status)).toEqual(['snoozed', 'snoozed', 'settled', 'archived']);
       expect(t3.threads.lookup([delegated]).get(delegated)!.id).toBe(delegated);
       // T3 Code keeps its database open in WAL mode; committed changes must be visible to a fresh read.
       const writer = new Database(t3.filename);
@@ -258,6 +267,15 @@ describe('agent preview records', () => {
       expect(remaining.find(item => item.id === vanishing.id)!.thread!.status).toBe('missing');
       expect(remaining.find(item => item.id === legacy.id)!.thread).toBeNull();
       for (const item of [fromSubagent, archived, deleted]) expect(supervisor.units.has(item.unit)).toBe(false);
+      // A snoozed thread keeps its preview even when settled, can start new ones, and is cleaned up once the snooze has passed.
+      t3.thread('snoozed');
+      const snoozedPreview = await add('snoozed preview', 'snoozed');
+      t3.thread('snoozed', { settled: true, snoozedUntil: new Date(Date.now() + 3_600_000).toISOString() });
+      const fromSnoozed = await add('second snoozed preview', 'snoozed');
+      expect((await servers.removeSettled()).removed).toEqual([]);
+      expect((await servers.list()).find(item => item.id === snoozedPreview.id)!.thread!.status).toBe('snoozed');
+      t3.thread('snoozed', { settled: true, snoozedUntil: new Date(Date.now() - 60_000).toISOString() });
+      expect((await servers.removeSettled()).removed.map(item => item.id).sort()).toEqual([snoozedPreview.id, fromSnoozed.id].sort());
       // Full deletion tombstones the request, so a delayed retry cannot resurrect it.
       t3.thread('parent');
       await expect(add('subagent preview', 'subagent')).rejects.toThrow('deleted');

@@ -11,8 +11,9 @@ export type ProjectData = Omit<Project, 'runtime'>;
 export const DEFAULT_ROOTS = ['/home/taytay/.t3/projects', '/home/taytay/.t3-nightly/projects', '/home/taytay/workspace'];
 
 function readProject(row: { data: string }): ProjectData {
-  // Existing registrations predate visibility preferences and remain visible.
-  return { hidden: false, ...JSON.parse(row.data) } as ProjectData;
+  // Existing registrations predate visibility preferences and tunnel access: visible, public tunnels.
+  const data = { hidden: false, ...JSON.parse(row.data) } as ProjectData;
+  return { ...data, tunnelAllowedEmails: Array.isArray(data.tunnelAllowedEmails) ? data.tunnelAllowedEmails : [] };
 }
 
 export class Store {

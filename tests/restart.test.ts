@@ -250,6 +250,19 @@ describe('restarting agent previews over HTTP', () => {
   }
   const restart = (id: string) => app.fetch(request(`/api/agent-servers/${id}/restart`, 'POST', {}));
 
+  test('an agent preview tunnel takes the access of the project it runs in', async () => {
+    app.store.insert(project(root, { tunnelAllowedEmails: ['*@example.com'] }));
+    const { created } = await tunneled();
+    expect(app.tunnels.get(`agent:${created.id}`)?.allowedEmails).toEqual(['*@example.com']);
+    expect(await readFile(path.join(root, 'cloudflared.log'), 'utf8')).toContain('--allowed-mail *@example.com --url');
+  });
+
+  test('an agent preview outside every registered project gets a public tunnel', async () => {
+    const { created } = await tunneled();
+    expect(app.tunnels.get(`agent:${created.id}`)?.allowedEmails).toEqual([]);
+    expect(await readFile(path.join(root, 'cloudflared.log'), 'utf8')).not.toContain('--allowed-mail');
+  });
+
   test('runs the existing in-place restart: same ID, port and URL, one more start', async () => {
     const created = await preview();
     const response = await restart(created.id);

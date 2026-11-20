@@ -359,7 +359,7 @@ export async function createApp(options: AppOptions) {
       if (!port) throw new ApiError(400, 'Configure a project port or an address with a port before opening a tunnel');
       // Wrapped so the mutation lock is released while Cloudflare connects; Stop
       // and Delete can still run and close a tunnel that is starting.
-      return { ready: tunnels.start(projectTunnel(id), port) };
+      return { ready: tunnels.start(projectTunnel(id), port, project.tunnelAllowedEmails ?? []) };
     });
     const tunnel = await opening.ready;
     return json({ project: processes.project(requireProject(id)), tunnel });

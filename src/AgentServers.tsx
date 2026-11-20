@@ -48,7 +48,7 @@ const REMOVING = new Set<AgentServerThread['status']>(['settled', 'archived', 'd
 function AgentThread({ thread }: { thread: AgentServerThread }) {
   const title = thread.title ?? (thread.status === 'unavailable' ? 'T3 thread unavailable' : 'T3 thread not found');
   const note = REMOVING.has(thread.status) ? `${thread.status}, removing soon` : '';
-  const hint = note ? `This thread is ${thread.status}. The preview is removed at the next check (every 10 minutes).` : thread.status === 'active' ? 'Removed automatically within 10 minutes after this thread is settled.' : 'Thread state is unknown, so this preview is kept.';
+  const hint = note ? `This thread is ${thread.status}. The preview is removed at the next check (every 10 minutes).` : thread.status === 'active' ? 'Removed automatically within 10 minutes after this thread is settled.' : thread.status === 'snoozed' ? 'This thread is snoozed, so this preview is kept until it wakes.' : 'Thread state is unknown, so this preview is kept.';
   const content = <><ChatCircleText size={13} aria-hidden="true" /><span>{title}</span>{note && <em>{note}</em>}</>;
   return thread.link
     ? <a className="agent-thread" href={thread.link} title={`Open in T3 Code. ${hint}`} aria-label={`Open T3 thread ${title}${note ? `, ${note}` : ''}`}>{content}</a>

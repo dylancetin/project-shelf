@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Cloud, Copy } from '@phosphor-icons/react';
-import type { TunnelState } from '../shared/tunnels';
+import { describeTunnelAccess, type TunnelState } from '../shared/tunnels';
 import { errorMessage } from './api';
 import { copyText, copyWhenReady } from './clipboard';
 import { IconButton, Spinner, Toast } from './components';
@@ -31,15 +31,18 @@ export function TunnelControls({ name, tunnel, disabledReason, onOpen, onClose, 
 
   async function open() {
     setPending('opening'); setNotice(null);
+    let access: string[] = [];
     const link = onOpen().then(state => {
       if (!state.url) throw new Error('Cloudflare did not return a tunnel address.');
+      access = state.allowedEmails ?? [];
       return state.url;
     });
     // Begin copying inside the click so the browser still allows it once the link arrives.
     const copied = copyWhenReady(link);
     try {
       const value = await link;
-      setNotice({ tone: 'success', message: (await copied) ? 'Tunnel link copied' : 'Tunnel ready', url: value, copied: await copied });
+      const label = (await copied) ? 'Tunnel link copied' : 'Tunnel ready';
+      setNotice({ tone: 'success', message: access.length ? `${label}, protected for ${describeTunnelAccess(access)}:` : label, url: value, copied: await copied });
     } catch (error) {
       setNotice({ tone: 'error', message: `Could not open a Cloudflare tunnel for ${name}: ${errorMessage(error)}` });
     } finally { setPending(null); }
@@ -62,9 +65,10 @@ export function TunnelControls({ name, tunnel, disabledReason, onOpen, onClose, 
     action={notice.url && !notice.copied ? <button type="button" className="button tunnel-copy-action" onClick={() => void copy(notice.url!)}><Copy size={14} />Copy link</button> : undefined} />,
   [notice, dismiss]);
 
+  const access = tunnel?.allowedEmails?.length ? ` (Cloudflare Access one-time PIN: ${describeTunnelAccess(tunnel.allowedEmails)})` : '';
   const title = pending === 'closing' ? `Closing the Cloudflare tunnel for ${name}…`
     : working ? `Opening a Cloudflare tunnel for ${name}…`
-    : url ? `Cloudflare tunnel on: ${url} — click to close it`
+    : url ? `Cloudflare tunnel on: ${url}${access} — click to close it`
     : tunnel ? `Cloudflare tunnel for ${name} is open — click to close it`
     : disabledReason ?? `Share ${name} through a Cloudflare tunnel; the link is copied when it is ready`;
   return <>

@@ -58,6 +58,48 @@ describe('Cloudflare quick tunnels for managed projects (fake cloudflared)', () 
     expect(await processAlive(launch!.pid)).toBe(false);
   });
 
+  const patch = (id: string, data: unknown) => app.fetch(request(`/api/projects/${id}`, 'PATCH', data));
+
+  test('public by default; the project allowlist protects tunnels opened afterwards', async () => {
+    await open();
+    const item = await running();
+    const other = project(root, { name: 'Sibling' });
+    app.store.insert(other);
+    const publicTunnel = await (await tunnel(item.id)).json();
+    expect(publicTunnel.tunnel.allowedEmails).toEqual([]);
+    expect(publicTunnel.project.tunnelAllowedEmails).toEqual([]);
+    expect((await launches(root))[0]!.args).not.toContain('--allowed-mail');
+
+    const saved = await patch(item.id, { tunnelAllowedEmails: [' You@Example.com ', '*@team.example.org', 'you@example.com'] });
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).project.tunnelAllowedEmails).toEqual(['you@example.com', '*@team.example.org']);
+    // Only this project changes, and an open tunnel keeps the access it started with.
+    expect(app.store.get(other.id)!.tunnelAllowedEmails).toEqual([]);
+    expect((await (await tunnel(item.id)).json()).tunnel.allowedEmails).toEqual([]);
+    expect(await launches(root)).toHaveLength(1);
+
+    expect((await tunnel(item.id, 'DELETE')).status).toBe(200);
+    const protectedTunnel = await (await tunnel(item.id)).json();
+    expect(protectedTunnel.tunnel.allowedEmails).toEqual(['you@example.com', '*@team.example.org']);
+    expect(protectedTunnel.project.runtime.tunnel.allowedEmails).toEqual(['you@example.com', '*@team.example.org']);
+    expect((await launches(root))[1]!.args).toContain('--allowed-mail you@example.com --allowed-mail *@team.example.org --url');
+  });
+
+  test('rejects access rules cloudflared would refuse and keeps the saved list', async () => {
+    await open();
+    const item = project(root, { port });
+    app.store.insert(item);
+    expect((await patch(item.id, { tunnelAllowedEmails: ['ok@example.com'] })).status).toBe(200);
+    for (const value of [['@example.com'], ['example.com'], ['*.example.com'], ['a@b.com,c@d.com'], ['two@@example.com'], [42], 'ok@example.com', Array(51).fill('a@example.com')]) {
+      const response = await patch(item.id, { tunnelAllowedEmails: value });
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/tunnel/i);
+    }
+    expect(app.store.get(item.id)!.tunnelAllowedEmails).toEqual(['ok@example.com']);
+    expect((await patch(item.id, { tunnelAllowedEmails: [] })).status).toBe(200);
+    expect(app.store.get(item.id)!.tunnelAllowedEmails).toEqual([]);
+  });
+
   test('a project that exits on its own takes its tunnel with it', async () => {
     await open();
     await files(root, { 'short.ts': `Bun.serve({ hostname: '127.0.0.1', port: Number(process.env.PORT), fetch: () => new Response('fixture') }); setTimeout(() => process.exit(0), 900);` });

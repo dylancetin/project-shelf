@@ -15,8 +15,11 @@ export interface AgentServerRecord {
   launchError?: string;
 }
 
-/** `missing`: the thread row is gone; `unavailable`: T3 Code's state could not be read. Neither removes the preview. */
-export type AgentServerThreadStatus = 'active' | 'settled' | 'archived' | 'deleted' | 'missing' | 'unavailable';
+/**
+ * `snoozed`: a future wake time is set (this outranks settled); `missing`: the thread row is gone;
+ * `unavailable`: T3 Code's state could not be read. None of these removes the preview.
+ */
+export type AgentServerThreadStatus = 'active' | 'snoozed' | 'settled' | 'archived' | 'deleted' | 'missing' | 'unavailable';
 
 export interface AgentServerThread {
   /** Thread that started the preview (its T3CODE_THREAD_ID). */

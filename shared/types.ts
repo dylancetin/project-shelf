@@ -20,6 +20,11 @@ export interface Project {
   port: number | null;
   logo: string; // Empty (automatic), project-relative image path, or HTTP(S) image URL.
   favorite: boolean;
+  /**
+   * Cloudflare Access allowlist (emails or `*@domain`) for this project's tunnels.
+   * Empty leaves its tunnel links public. Absent on entries saved by older clients.
+   */
+  tunnelAllowedEmails?: string[];
   hidden: boolean;
   createdAt: string;
   updatedAt: string;

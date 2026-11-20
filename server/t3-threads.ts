@@ -18,11 +18,13 @@ export interface T3Threads {
   lookup(threadIds: readonly string[]): Map<string, T3Thread>;
 }
 
-interface ThreadRow { title: string; deleted: number; archived: number; settled: number; parent: string | null }
+interface ThreadRow { title: string; deleted: number; archived: number; settled: number; snoozedUntil: string | null; parent: string | null }
 
 /**
  * Reads T3 Code's own thread projection, strictly read-only. Settled, archived
- * and deleted follow T3 Code's rule for abandoned subagent work. Only subagent
+ * and deleted follow T3 Code's rule for abandoned subagent work. A pending
+ * snooze (`snoozedUntil` in the future) outranks settled: snoozing does not
+ * clear `settledOverride`, but the user means to come back. Only subagent
  * links are climbed: a fork is its own thread even though T3 Code records the
  * original as its lineage root.
  */
@@ -47,10 +49,12 @@ export class T3StateThreads implements T3Threads {
           deleted_at IS NOT NULL OR json_extract(payload_json, '$.deletedAt') IS NOT NULL AS deleted,
           archived_at IS NOT NULL OR json_extract(payload_json, '$.archivedAt') IS NOT NULL AS archived,
           json_extract(payload_json, '$.settledOverride') IS 'settled' AS settled,
+          json_extract(payload_json, '$.snoozedUntil') AS snoozedUntil,
           CASE WHEN json_extract(payload_json, '$.lineage.relationshipToParent') = 'subagent'
             THEN json_extract(payload_json, '$.lineage.parentThreadId') END AS parent
         FROM orchestration_v2_projection_threads WHERE thread_id = ?`);
       const environmentId = this.environmentId();
+      const now = Date.now();
       for (const id of ids) {
         let row = query.get(id);
         if (!row) continue;
@@ -59,11 +63,17 @@ export class T3StateThreads implements T3Threads {
         if (!row || row.parent) { result.set(id, { id, rootId, title: null, status: 'missing', link: null }); continue; }
         result.set(id, {
           id, rootId, title: row.title,
-          status: row.deleted ? 'deleted' : row.archived ? 'archived' : row.settled ? 'settled' : 'active',
+          status: row.deleted ? 'deleted' : row.archived ? 'archived' : snoozed(row, now) ? 'snoozed' : row.settled ? 'settled' : 'active',
           link: environmentId ? `t3code://threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(rootId)}` : null,
         });
       }
       return result;
     } finally { db.close(); }
   }
+}
+
+// T3 Code leaves an expired `snoozedUntil` in place until the thread is next
+// touched; only a future wake time counts as snoozed.
+function snoozed(row: ThreadRow, now: number) {
+  return typeof row.snoozedUntil === 'string' && Date.parse(row.snoozedUntil) > now;
 }

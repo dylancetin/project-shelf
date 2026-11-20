@@ -1,6 +1,7 @@
 import type { Settings } from '../shared/types';
 import { remoteLogoUrl } from '../shared/logos';
 import { isSearchEngine } from '../shared/search';
+import { MAX_TUNNEL_ALLOWED_EMAILS, tunnelAccessRule } from '../shared/tunnels';
 import { ApiError } from './errors';
 import { absolutePath, canonicalDirectory, safeRelative } from './paths';
 import type { ProjectData } from './store';
@@ -49,7 +50,7 @@ export function canonicalUrl(value: unknown, allowEmpty = true): string {
 
 const PROJECT_FIELDS = new Set([
   'name', 'description', 'kind', 'directory', 'source', 'url', 'hostname', 'devCommand',
-  'buildCommand', 'prodCommand', 'port', 'logo', 'favorite', 'hidden',
+  'buildCommand', 'prodCommand', 'port', 'logo', 'favorite', 'hidden', 'tunnelAllowedEmails',
 ]);
 
 export async function projectInput(value: unknown, settings: Settings, previous?: ProjectData): Promise<ProjectData> {
@@ -62,7 +63,7 @@ export async function projectInput(value: unknown, settings: Settings, previous?
   const result: ProjectData = previous ? { ...previous } : {
     id: crypto.randomUUID(), name: '', description: '', kind: 'project', directory: '', source: 'manual',
     url: '', hostname: settings.defaultHostname, devCommand: '', buildCommand: '', prodCommand: '',
-    port: null, logo: '', favorite: false, hidden: false, createdAt: now, updatedAt: now,
+    port: null, logo: '', favorite: false, hidden: false, tunnelAllowedEmails: [], createdAt: now, updatedAt: now,
   };
   if (input.kind !== undefined) {
     if (input.kind !== 'project' && input.kind !== 'service') throw new ApiError(400, 'kind must be project or service');
@@ -95,6 +96,16 @@ export async function projectInput(value: unknown, settings: Settings, previous?
       if (typeof input[field] !== 'boolean') throw new ApiError(400, `${field} must be a boolean`);
       result[field] = input[field];
     }
+  }
+  if (input.tunnelAllowedEmails !== undefined) {
+    if (!Array.isArray(input.tunnelAllowedEmails) || input.tunnelAllowedEmails.length > MAX_TUNNEL_ALLOWED_EMAILS) {
+      throw new ApiError(400, `tunnelAllowedEmails must be an array of at most ${MAX_TUNNEL_ALLOWED_EMAILS} email addresses or *@domain rules`);
+    }
+    result.tunnelAllowedEmails = [...new Set(input.tunnelAllowedEmails.map(value => {
+      const rule = typeof value === 'string' ? tunnelAccessRule(value) : null;
+      if (!rule) throw new ApiError(400, `Tunnel access must be an email address or *@domain, not ${JSON.stringify(String(value).slice(0, 80))}`);
+      return rule;
+    }))];
   }
   if (result.kind === 'project' && !result.directory) throw new ApiError(400, 'A project requires an existing directory');
   if (result.kind === 'service' && !result.url) throw new ApiError(400, 'A service requires a URL');

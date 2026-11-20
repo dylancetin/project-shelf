@@ -4,11 +4,12 @@ import type { Project, Settings, RunMode, LogoFile, LogLine } from '../shared/ty
 import { api, errorMessage, isActive } from './api';
 import { Dialog, ErrorNotice, Field, HostnameSelect, IconButton, OpenLink, ProjectAvatar, Spinner, Status, type OpenProject } from './components';
 import { useServerAvailable } from './connection';
+import { MAX_TUNNEL_ALLOWED_EMAILS, parseTunnelAccess } from '../shared/tunnels';
 
 type Tab = 'overview' | 'commands' | 'logs' | 'duplicate' | 'remove';
-type Draft = Pick<Project, 'name' | 'description' | 'directory' | 'url' | 'hostname' | 'devCommand' | 'buildCommand' | 'prodCommand' | 'logo'> & { port: string };
+type Draft = Pick<Project, 'name' | 'description' | 'directory' | 'url' | 'hostname' | 'devCommand' | 'buildCommand' | 'prodCommand' | 'logo'> & { port: string; tunnelAccess: string };
 function draftFor(project: Project): Draft {
-  return { name: project.name, description: project.description, directory: project.directory, url: project.url, hostname: project.hostname, devCommand: project.devCommand, buildCommand: project.buildCommand, prodCommand: project.prodCommand, logo: project.logo, port: project.port === null ? '' : String(project.port) };
+  return { name: project.name, description: project.description, directory: project.directory, url: project.url, hostname: project.hostname, devCommand: project.devCommand, buildCommand: project.buildCommand, prodCommand: project.prodCommand, logo: project.logo, port: project.port === null ? '' : String(project.port), tunnelAccess: (project.tunnelAllowedEmails ?? []).join('\n') };
 }
 
 export function DetailsSheet({ project, settings, busy, launching, launchError, onOpen, onClose, onUpdate, onAction, onDuplicated, onRemoved }: { project: Project; settings: Settings | null; busy: boolean; launching: boolean; launchError: string; onOpen: OpenProject; onClose: () => void; onUpdate: (data: Partial<Project>) => Promise<Project>; onAction: (mode: RunMode | 'stop') => Promise<void>; onDuplicated: (project: Project) => void; onRemoved: () => void }) {
@@ -44,8 +45,12 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
       try { const url = new URL(draft.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error(); }
       catch { setError('Use a complete HTTP or HTTPS address.'); return; }
     }
+    const access = parseTunnelAccess(draft.tunnelAccess);
+    if (access.invalid.length) { setError(`Tunnel access takes email addresses or *@domain rules. Check: ${access.invalid.slice(0, 3).join(', ')}`); return; }
+    if (access.rules.length > MAX_TUNNEL_ALLOWED_EMAILS) { setError(`Tunnel access allows at most ${MAX_TUNNEL_ALLOWED_EMAILS} rules.`); return; }
     try {
-      const updated = await onUpdate({ ...draft, name: draft.name.trim(), directory: draft.directory.trim(), port: draft.port ? Number(draft.port) : null });
+      const { tunnelAccess: _, ...fields } = draft;
+      const updated = await onUpdate({ ...fields, name: draft.name.trim(), directory: draft.directory.trim(), port: draft.port ? Number(draft.port) : null, ...(project.kind === 'project' ? { tunnelAllowedEmails: access.rules } : {}) });
       setDraft(draftFor(updated)); setSaved(true);
     } catch (err) { setError(errorMessage(err)); }
   }
@@ -92,7 +97,7 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
       <Field label="Name"><input data-autofocus required value={draft.name} onChange={event => edit('name', event.target.value)} maxLength={160} /></Field>
       <Field label="Description"><textarea rows={2} value={draft.description} onChange={event => edit('description', event.target.value)} placeholder="A short note about this project." maxLength={1000} /></Field>
       {project.kind === 'project' && <Field label="Project directory" hint="Commands run in this directory. Changing this does not move files."><input className="mono" value={draft.directory} onChange={event => edit('directory', event.target.value)} /></Field>}
-      <div className="form-section"><div className="section-heading"><h3>Connection</h3></div><div className={`form-columns ${project.kind === 'project' ? 'address-columns' : 'single-column'}`}><Field label="Original URL"><input className="mono" type="url" value={draft.url} onChange={event => edit('url', event.target.value)} placeholder="http://localhost:3000" /></Field>{project.kind === 'project' && <Field label="Port"><input type="number" min="1" max="65535" value={draft.port} onChange={event => edit('port', event.target.value)} placeholder="Auto" /></Field>}</div><div className="field"><span className="field-label">Preferred hostname</span><HostnameSelect project={{ ...project, hostname: draft.hostname }} settings={settings} onChange={hostname => edit('hostname', hostname)} /><span className="field-hint">Only the hostname changes. The port, protocol, and path stay intact.</span></div></div>
+      <div className="form-section"><div className="section-heading"><h3>Connection</h3></div><div className={`form-columns ${project.kind === 'project' ? 'address-columns' : 'single-column'}`}><Field label="Original URL"><input className="mono" type="url" value={draft.url} onChange={event => edit('url', event.target.value)} placeholder="http://localhost:3000" /></Field>{project.kind === 'project' && <Field label="Port"><input type="number" min="1" max="65535" value={draft.port} onChange={event => edit('port', event.target.value)} placeholder="Auto" /></Field>}</div><div className="field"><span className="field-label">Preferred hostname</span><HostnameSelect project={{ ...project, hostname: draft.hostname }} settings={settings} onChange={hostname => edit('hostname', hostname)} /><span className="field-hint">Only the hostname changes. The port, protocol, and path stay intact.</span></div>{project.kind === 'project' && <Field label="Tunnel access" hint={<>Emails allowed through this project’s Cloudflare tunnels, including agent previews of it. One per line; <code>*@example.com</code> allows a domain. Visitors confirm with a one-time PIN. Empty means anyone with the link. Reopen an open tunnel to apply changes.</>}><textarea className="mono" aria-label="Tunnel access" rows={2} value={draft.tunnelAccess} onChange={event => edit('tunnelAccess', event.target.value)} placeholder="Anyone with the link" spellCheck={false} autoCapitalize="none" /></Field>}</div>
       {project.kind === 'project' && <div className="form-section">
         <div className="section-heading"><h3>Project identity</h3><span>Make it easy to find.</span></div>
         <div className="logo-settings"><ProjectAvatar project={{ ...project, logo: draft.logo, name: draft.name }} /><div><strong>{draft.logo ? 'Project image' : 'A simple monogram'}</strong><p>{draft.logo || 'A little personality, made from the name.'}</p></div><button className="button" type="button" disabled={!available} aria-expanded={logoOpen} onClick={() => void loadLogos()}><Image size={16} />Choose logo</button></div>

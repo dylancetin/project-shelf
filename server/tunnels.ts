@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import type { TunnelState } from '../shared/tunnels';
+import { MAX_TUNNEL_ALLOWED_EMAILS, tunnelAccessRule, type TunnelState } from '../shared/tunnels';
 import { ApiError } from './errors';
 import { groupAlive, signalGroup } from './process-groups';
 
@@ -53,23 +53,28 @@ export class TunnelManager {
 
   get(key: string): TunnelState | null {
     const tunnel = this.tunnels.get(key);
-    return tunnel ? { ...tunnel.state } : null;
+    return tunnel ? { ...tunnel.state, allowedEmails: [...tunnel.state.allowedEmails] } : null;
   }
 
   /**
    * Opens (or reuses) a tunnel to a loopback port. Registration is synchronous;
-   * the returned promise settles once the public URL accepts traffic.
+   * the returned promise settles once the public URL accepts traffic. A nonempty
+   * `allowedEmails` makes it a protected quick tunnel: Cloudflare Access asks each
+   * visitor for a one-time PIN sent to an allowed address. A reused tunnel keeps
+   * the access it was opened with.
    */
-  start(key: string, port: number): Promise<TunnelState> {
+  start(key: string, port: number, allowedEmails: readonly string[] = []): Promise<TunnelState> {
     if (this.closed) throw new ApiError(503, 'The server is shutting down');
     const existing = this.tunnels.get(key);
     if (existing) return existing.ready;
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ApiError(400, 'A tunnel needs a local port from 1 to 65535');
+    const access = [...new Set(allowedEmails.map(value => tunnelAccessRule(value)))];
+    if (access.some(rule => rule === null) || access.length > MAX_TUNNEL_ALLOWED_EMAILS) throw new ApiError(400, 'Tunnel access must be email addresses or *@domain rules');
     if (this.tunnels.size >= this.maxTunnels) throw new ApiError(429, `At most ${this.maxTunnels} Cloudflare tunnels can be open at once`);
     // Vite and similar dev servers only answer known hosts; present the request as
     // local. A random metrics port lets several quick tunnels run side by side.
     const child = spawn(this.options.binary ?? 'cloudflared', ['tunnel', '--no-autoupdate', '--grace-period', '1s', '--metrics', '127.0.0.1:0',
-      '--http-host-header', 'localhost', '--url', `http://127.0.0.1:${port}`], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: tunnelEnvironment() });
+      '--http-host-header', 'localhost', ...access.flatMap(rule => ['--allowed-mail', rule!]), '--url', `http://127.0.0.1:${port}`], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: tunnelEnvironment() });
     const recent: string[] = [];
     let url: string | null = null;
     let settle!: { resolve: (state: TunnelState) => void; reject: (error: Error) => void };
@@ -77,11 +82,11 @@ export class TunnelManager {
     ready.catch(() => {}); // Rejections are reported to the caller that awaits it.
     let markExited!: () => void;
     const exited = new Promise<void>(resolve => { markExited = resolve; });
-    const tunnel: Tunnel = { state: { status: 'starting', url: null, startedAt: new Date().toISOString() }, child, ready, exited, stopped: false };
+    const tunnel: Tunnel = { state: { status: 'starting', url: null, startedAt: new Date().toISOString(), allowedEmails: access as string[] }, child, ready, exited, stopped: false };
     this.tunnels.set(key, tunnel);
 
     const lastError = () => {
-      const line = [...recent].reverse().find(item => /\b(ERR|FTL)\b|error|failed/i.test(item));
+      const line = [...recent].reverse().find(item => /\b(ERR|FTL)\b|error|failed|not a valid/i.test(item));
       return line ? line.replace(/^\S+Z\s+(ERR|FTL|WRN|INF)\s+/, '').slice(0, 300) : '';
     };
     const fail = (error: ApiError) => {

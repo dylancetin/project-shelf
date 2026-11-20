@@ -8,9 +8,12 @@ import type { Store } from './store';
 import { SystemdAgentSupervisor, type AgentSupervisor } from './agent-supervisor';
 import { T3StateThreads, T3_THREAD_ID, type T3Thread, type T3Threads } from './t3-threads';
 import { agentTunnel, type TunnelManager } from './tunnels';
+import { owningProject } from './project-owner';
 import type { TunnelState } from '../shared/tunnels';
 
 const INACTIVE_THREADS = new Set<AgentServerThread['status']>(['settled', 'archived', 'deleted']);
+// Snoozed threads keep their previews and may start new ones.
+const LIVE_THREADS = new Set<AgentServerThread['status']>(['active', 'snoozed']);
 
 // Shared by app instances in this process. SQLite's unique port index also
 // reserves ports across processes; there is no check-then-insert allocation race.
@@ -69,7 +72,7 @@ export class AgentServers {
     try { thread = this.threads.lookup([threadId]).get(threadId); }
     catch (error) { throw new ApiError(503, `Could not read T3 Code threads to verify threadId: ${errorMessage(error)}`); }
     if (!thread) throw new ApiError(400, `Unknown T3 Code thread ${threadId}; pass this session's T3CODE_THREAD_ID`);
-    if (thread.status !== 'active') throw new ApiError(409, `The top-level T3 Code thread ${thread.rootId ?? threadId} is ${thread.status}; previews tied to it are removed automatically`);
+    if (!LIVE_THREADS.has(thread.status)) throw new ApiError(409, `The top-level T3 Code thread ${thread.rootId ?? threadId} is ${thread.status}; previews tied to it are removed automatically`);
     return threadId;
   }
   async view(record: AgentServerRecord, threads = this.lookupThreads([record])): Promise<AgentServer> {
@@ -185,9 +188,11 @@ export class AgentServers {
     const tunnels = this.tunnels;
     const record = this.require(id);
     if (!tunnels.get(agentTunnel(id)) && !(await this.view(record)).ready) throw new ApiError(409, 'Wait until the preview is ready before opening a Cloudflare tunnel');
+    // A preview shares the access of the project it belongs to (directly or through a Git worktree).
+    const owner = tunnels.get(agentTunnel(id)) ? null : await owningProject(record.cwd, this.store.list());
     // A Stop that lands while readiness was checked wins; never tunnel a deleted preview.
     this.require(id);
-    return tunnels.start(agentTunnel(id), record.port);
+    return tunnels.start(agentTunnel(id), record.port, owner?.tunnelAllowedEmails ?? []);
   }
   async closeTunnel(id: string) {
     this.require(id);
@@ -212,7 +217,7 @@ export class AgentServers {
   }
 
   // Fully delete previews whose top-level T3 thread is settled, archived or
-  // deleted. Missing threads, unreadable T3 state and records without a thread
+  // deleted. Snoozed threads (even settled ones), missing threads, unreadable T3 state and records without a thread
   // are left alone. A failed stop keeps the record for the next check.
   async removeSettled() {
     const records = this.records().filter(record => record.threadId);

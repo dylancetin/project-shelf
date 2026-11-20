@@ -123,6 +123,6 @@ export function Toast({ message, onDismiss, tone = 'success', action }: { messag
   return <div className={`toast${tone === 'error' ? ' toast-error' : ''}`} role={tone === 'error' ? 'alert' : 'status'}><span className="toast-check">{tone === 'error' ? <WarningCircle size={17} weight="fill" /> : <Check size={16} weight="bold" />}</span><span className="toast-message">{message}</span>{action}<IconButton label="Dismiss notification" onClick={onDismiss}><X size={16} /></IconButton></div>;
 }
 
-export function Field({ label, children, hint, className = '' }: { label: string; children: ReactNode; hint?: string; className?: string }) {
+export function Field({ label, children, hint, className = '' }: { label: string; children: ReactNode; hint?: ReactNode; className?: string }) {
   return <label className={`field ${className}`}><span className="field-label">{label}</span>{children}{hint && <span className="field-hint">{hint}</span>}</label>;
 }
