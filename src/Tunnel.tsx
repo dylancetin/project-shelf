@@ -72,11 +72,11 @@ export function useTunnelActions({ name, tunnel, access, onOpen, onClose }: {
     try {
       const value = await url;
       const ok = await copied;
-      const lead = kind === 'reopening' ? (ok ? 'Tunnel reopened; new link copied.' : 'Tunnel reopened.') : ok ? 'Tunnel link copied.' : 'Tunnel ready.';
+      const lead = kind === 'reopening' ? (ok ? 'Access updated; link copied.' : 'Access updated.') : ok ? 'Tunnel link copied.' : 'Tunnel ready.';
       setNotice({ tone: 'success', message: `${lead} ${whoCanOpen(rules)}:`, url: value, copied: ok });
       return true;
     } catch (error) {
-      setNotice({ tone: 'error', message: `Could not ${kind === 'reopening' ? 'reopen' : 'open'} a Cloudflare tunnel for ${name}: ${errorMessage(error)}` });
+      setNotice({ tone: 'error', message: `Could not ${kind === 'reopening' ? 'update access for the Cloudflare tunnel of' : 'open a Cloudflare tunnel for'} ${name}: ${errorMessage(error)}` });
       return false;
     }
   }
@@ -88,11 +88,8 @@ export function useTunnelActions({ name, tunnel, access, onOpen, onClose }: {
   }
 
   const open = () => run('opening', () => share('opening', onOpen()));
-  const reopen = () => run('reopening', () => share('reopening', (async () => {
-    try { await onClose(); }
-    catch (error) { throw new Error(`the old tunnel did not close (${errorMessage(error)})`); }
-    return onOpen();
-  })()));
+  // Opening an open tunnel applies its current access in place; the link stays the same.
+  const reopen = () => run('reopening', () => share('reopening', onOpen()));
   const close = () => run('closing', async () => {
     try { await onClose(); return true; }
     catch (error) { setNotice({ tone: 'error', message: `Could not close the Cloudflare tunnel for ${name}: ${errorMessage(error)}` }); return false; }
@@ -132,25 +129,27 @@ export function TunnelButtons({ name, tunnel, access, disabledReason, actions, c
   const url = tunnel?.status === 'running' ? tunnel.url : null;
   const stale = tunnelAccessStale(tunnel, access);
   const openFor = tunnel?.allowedEmails?.length ? `Cloudflare Access one-time PIN: ${describeTunnelAccess(tunnel.allowedEmails)}` : 'anyone with the link';
+  const problem = tunnel?.error ? `\nCloudflare: ${tunnel.error}` : '';
   const title = pending === 'closing' ? `Closing the Cloudflare tunnel for ${name}…`
-    : pending === 'reopening' ? `Reopening the Cloudflare tunnel for ${name}…`
+    : pending === 'reopening' ? `Updating access for the Cloudflare tunnel of ${name}…`
     : working ? `Opening a Cloudflare tunnel for ${name}…`
-    : tunnel && stale && access ? `Cloudflare tunnel ${url ? `on ${url}` : `for ${name}`} opened for ${describeTunnelAccess(tunnel.allowedEmails)}; access is now ${describeTunnelAccess(access.allowedEmails)}. Close and open it again to apply.`
-    : url ? `Cloudflare tunnel on: ${url} (${openFor}) — click to close it`
+    : tunnel && stale && access ? `Cloudflare tunnel ${url ? `on ${url}` : `for ${name}`} still allows ${describeTunnelAccess(tunnel.allowedEmails)}; access is now ${describeTunnelAccess(access.allowedEmails)}. Apply access to update it.${problem}`
+    : url ? `Cloudflare tunnel on: ${url} (${openFor}). It stays open until you close it — click to close it${problem}`
     : tunnel ? `Cloudflare tunnel for ${name} is open — click to close it`
     : disabledReason ?? (access
       ? `Share ${name} through a Cloudflare tunnel for ${describeTunnelAccess(access.allowedEmails)} (${accessSourceText(access)}); the link is copied when it is ready`
       : `Share ${name} through a Cloudflare tunnel; the link is copied when it is ready`);
+  const warn = stale || Boolean(tunnel?.error);
   return <>
-    <IconButton className={`tunnel-toggle ${className}${tunnel && !working ? ' is-running' : ''}${stale && !working ? ' is-stale' : ''}${working ? ' is-working' : ''}`} label={`Cloudflare tunnel for ${name}${stale ? ', reopen needed' : ''}`} title={title}
+    <IconButton className={`tunnel-toggle ${className}${tunnel && !working ? ' is-running' : ''}${warn && !working ? ' is-stale' : ''}${working ? ' is-working' : ''}`} label={`Cloudflare tunnel for ${name}${stale ? ', access update needed' : tunnel?.error ? ', needs attention' : ''}`} title={title}
       aria-pressed={Boolean(tunnel)} aria-busy={working || undefined} disabled={working || (!tunnel && Boolean(disabledReason))} onClick={() => void (tunnel ? actions.close() : actions.open())}>
-      {working ? <Spinner size={14} /> : stale ? <CloudWarning size={16} weight="fill" aria-hidden="true" /> : <Cloud size={16} weight={tunnel ? 'fill' : 'regular'} aria-hidden="true" />}
+      {working ? <Spinner size={14} /> : warn ? <CloudWarning size={16} weight="fill" aria-hidden="true" /> : <Cloud size={16} weight={tunnel ? 'fill' : 'regular'} aria-hidden="true" />}
     </IconButton>
     {url && !working && <IconButton className="tunnel-copy" label={`Copy tunnel link for ${name}`} title={`Copy ${url}`} onClick={() => void actions.copy(url)}><Copy size={15} aria-hidden="true" /></IconButton>}
   </>;
 }
 
-/** Self-contained tunnel switch for rows that never offer Reopen (Home launcher). */
+/** Self-contained tunnel switch for rows that never offer Apply access (Home launcher). */
 export function TunnelControls({ name, tunnel, access = null, disabledReason, onOpen, onClose, className }: {
   name: string;
   tunnel: TunnelState | null | undefined;
@@ -195,10 +194,11 @@ export function TunnelAccessLine({ access, tunnel, ownerId, newTab = false, link
 }
 
 /**
- * Caution box shown while an open tunnel still uses the access it started with. The live region
- * stays mounted so focus can rest on it after Reopen removes the button, and it confirms the reopen.
+ * Caution box shown while an open tunnel's access in Cloudflare differs from its current access
+ * (the automatic update failed). The live region stays mounted so focus can rest on it after
+ * Apply removes the button, and it confirms the update.
  */
-export function TunnelStaleNotice({ stale, open, message, name, actions, access, buttonLabel = 'Reopen tunnel', boxClassName = 'connection-notice tunnel-stale-notice', className = '' }: {
+export function TunnelStaleNotice({ stale, open, message, name, actions, access, buttonLabel = 'Apply access', boxClassName = 'connection-notice tunnel-stale-notice', className = '' }: {
   stale: boolean;
   /** Whether a tunnel is open; the reopen confirmation goes away once it is closed. */
   open: boolean;
@@ -224,9 +224,9 @@ export function TunnelStaleNotice({ stale, open, message, name, actions, access,
       <Warning size={15} weight="bold" aria-hidden="true" />
       <span className="tunnel-stale-text">{message}</span>
       <button type="button" className="button tunnel-reopen" disabled={actions.pending !== null} aria-busy={reopening || undefined}
-        title={`Close the Cloudflare tunnel for ${name} and open a new one with current access. The link changes.`} onClick={() => void reopen()}>
-        {reopening ? <Spinner size={14} /> : <ArrowClockwise size={14} aria-hidden="true" />}{reopening ? 'Reopening…' : buttonLabel}
+        title={`Update Cloudflare Access for the ${name} tunnel. The link stays the same.`} onClick={() => void reopen()}>
+        {reopening ? <Spinner size={14} /> : <ArrowClockwise size={14} aria-hidden="true" />}{reopening ? 'Applying…' : buttonLabel}
       </button>
-    </div> : done && open && access ? <p className="tunnel-reopened">Tunnel reopened. {whoCanOpen(access.allowedEmails)}.</p> : null}
+    </div> : done && open && access ? <p className="tunnel-reopened">Access updated. {whoCanOpen(access.allowedEmails)}.</p> : null}
   </div>;
 }

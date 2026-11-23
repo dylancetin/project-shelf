@@ -41,7 +41,7 @@ export interface AgentServer extends AgentServerRecord {
   logsUrl: string;
   diagnostic: string;
   thread: AgentServerThread | null;
-  /** Open Cloudflare quick tunnel to this preview's port. */
+  /** Open persistent Cloudflare tunnel to this preview's port (it stays open until the user closes it). */
   tunnel: TunnelState | null;
   /** Effective access a tunnel opened now would get (resolved from the preview's folder layers, then Settings). */
   tunnelAccess: TunnelAccess;

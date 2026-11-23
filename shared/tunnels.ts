@@ -1,15 +1,23 @@
-/** A Cloudflare quick tunnel (https://try.cloudflare.com) exposing a running project or agent preview. */
+/**
+ * A persistent Cloudflare tunnel hostname (for example `https://quiet-amber-falcon-tunnel.taylan.tr`)
+ * routed to a project's or agent preview's local port through the panel's named tunnel. It stays
+ * open across process stops, restarts and panel restarts until the user closes it.
+ */
 export interface TunnelState {
-  /** `starting` until cloudflared has a public URL and a registered edge connection. */
+  /** `starting` while the hostname, route and access are being set up; `running` once traffic is routed. */
   status: 'starting' | 'running';
-  /** Public `https://*.trycloudflare.com` address; null while starting. */
+  /** Public `https://` address. Stable for the project or preview, even after closing and reopening. */
   url: string | null;
   startedAt: string;
   /**
    * Emails and `*@domain` rules allowed through Cloudflare Access (one-time PIN).
-   * Empty means anyone with the link can open it. Fixed for the tunnel's lifetime.
+   * Empty means anyone with the link can open it. Follows the effective access as it changes.
    */
   allowedEmails: string[];
+  /** Local port Cloudflare forwards to. */
+  port?: number;
+  /** Last error while applying a change (for example access that could not be updated); absent when in sync. */
+  error?: string;
 }
 
 /**
@@ -37,7 +45,7 @@ export interface TunnelAccess {
   from: TunnelAccessRef[];
 }
 
-/** True when an open tunnel was started with different rules than the current effective access. */
+/** True when an open tunnel's applied access differs from the current effective access (an update is pending or failed). */
 export function tunnelAccessStale(tunnel: Pick<TunnelState, 'allowedEmails'> | null | undefined, access: TunnelAccess | null | undefined): boolean {
   if (!tunnel || !access) return false;
   const now = new Set(access.allowedEmails), was = new Set(tunnel.allowedEmails ?? []);
@@ -54,12 +62,12 @@ export function describeTunnelSource(access: TunnelAccess): string {
   return names.length === 2 ? `from ${names[0]} and ${names[1]}` : `from ${names[0]} and ${names.length - 1} more`;
 }
 
-/** Most access rules one tunnel accepts; Settings stores at most this many. */
+/** Most access rules one tunnel's Access policy gets; Settings stores at most this many. */
 export const MAX_TUNNEL_ALLOWED_EMAILS = 50;
 
 /**
- * Normalizes one `--allowed-mail` rule: an email address or `*@domain`, lowercased.
- * Returns null for anything cloudflared would reject (`@domain`, `domain`, `*.domain`).
+ * Normalizes one access rule: an email address or `*@domain`, lowercased.
+ * Returns null for anything else (`@domain`, `domain`, `*.domain`).
  */
 export function tunnelAccessRule(value: string): string | null {
   const rule = value.trim().toLowerCase();

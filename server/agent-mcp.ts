@@ -51,7 +51,7 @@ export async function handleAgentMcp(c: Context, servers: AgentServers, projects
     catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }] }; }
   };
   server.registerTool('add', {
-    description: 'Start or reuse a retained development preview on this machine, owned by your T3 Code thread. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, logs URL, and owning thread. The preview stays until deleted, or until its top-level T3 thread (a subagent\'s parent) is settled, archived or deleted: a check every 10 minutes then stops and removes it. A snoozed thread keeps its previews until the snooze wakes. Retry with the same idempotencyKey; do not launch unmanaged background processes.',
+    description: 'Start or reuse a retained development preview on this machine, owned by your T3 Code thread. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, logs URL, and owning thread. The preview stays until deleted, or until its top-level T3 thread (a subagent\'s parent) is settled, archived or deleted: a check every 10 minutes then stops and removes it, unless the user opened a Cloudflare tunnel to it. A snoozed thread keeps its previews until the snooze wakes. Retry with the same idempotencyKey; do not launch unmanaged background processes.',
     inputSchema: {
       name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096), command: z.string().min(1).max(16000),
       threadId: z.string().min(1).max(500).describe('Required. Your T3 Code thread ID: the value of the T3CODE_THREAD_ID environment variable in your shell (run printenv T3CODE_THREAD_ID). Never guess or reuse another thread\'s ID.'),
@@ -65,9 +65,9 @@ export async function handleAgentMcp(c: Context, servers: AgentServers, projects
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   }, ({ id }) => result(() => servers.restart(id)));
   server.registerTool('delete', {
-    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Only delete when asked or when this preview is no longer wanted; previews are removed automatically after their T3 thread is settled. A failed stop retains the record. Repeated deletion is safe.',
+    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Only delete when asked or when this preview is no longer wanted; previews are removed automatically after their T3 thread is settled. A preview with an open Cloudflare tunnel is never removed this way or automatically: only the user removes it in Project Shelf. A failed stop retains the record. Repeated deletion is safe.',
     inputSchema: { id: z.string().uuid() },
-  }, ({ id }) => result(() => servers.delete(id)));
+  }, ({ id }) => result(() => servers.delete(id, 'agent')));
   server.registerTool('projects_list', {
     title: 'Projects list',
     description: 'List all registered Project Shelf projects and service links, including hidden entries, saved commands, URLs, and actual managed runtime state. Use the returned project ID with project_run or project_logs. Does not scan directories or start commands.',

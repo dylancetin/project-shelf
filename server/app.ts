@@ -120,12 +120,22 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 
 export async function createApp(options: AppOptions) {
   const store = new Store(options.dbPath, options.initialSettings);
-  const tunnels = new TunnelManager(options.tunnelOptions);
+  const tunnels = new TunnelManager(store, options.tunnelOptions);
   // Layered tunnel access is computed from every registration and the Settings default.
   const accessResolver = (projects = store.list()) => new TunnelAccessResolver(projects, store.settings().tunnelAllowedEmails ?? []);
   // Every Project the API returns passes through processes.project, which adds the computed access fields.
   const processes = new ProcessManager(options.processOptions, tunnels, data => accessResolver().fields(data));
   const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads, tunnels, accessResolver);
+  // Open tunnels follow their target's current port and effective access; a deleted target closes its tunnel.
+  tunnels.target = key => {
+    const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+    if (kind === 'agent') return agentServers.tunnelTarget(id);
+    const project = kind === 'project' ? store.get(id) : null;
+    if (!project || project.kind !== 'project') return null;
+    return { port: tunnelPort(project), rules: tunnelRules(accessResolver().fields(project).tunnelAccess!) };
+  };
+  // Restore routes, DNS, access and the connector for tunnels left open before this start.
+  void tunnels.reconcile();
   /** All registrations in API shape, resolving tunnel access once for the whole list. */
   function projectViews() {
     const projects = store.list();
@@ -216,6 +226,7 @@ export async function createApp(options: AppOptions) {
     result.updatedAt = now;
     if (directory !== source.directory && !input.copyFiles) result.logo = '';
     store.insert(result);
+    await tunnels.sync();
     return json({ project: processes.project(result) }, 201);
   }
 
@@ -293,6 +304,7 @@ export async function createApp(options: AppOptions) {
   router.post('/api/projects', async c => {
     const project = await projectInput(await body(c.req.raw), store.settings());
     store.insert(project);
+    await tunnels.sync();
     return json({ project: processes.project(project) }, 201);
   });
   router.post('/api/projects/reorder', async c => {
@@ -311,9 +323,14 @@ export async function createApp(options: AppOptions) {
   router.patch('/api/settings', async c => {
     const settings = settingsInput(await body(c.req.raw), store.settings());
     store.setValue('settings', settings);
+    await tunnels.sync();
     return json({ settings });
   });
-  router.post('/api/scan', async () => json(await scan()));
+  router.post('/api/scan', async () => {
+    const result = await scan();
+    await tunnels.sync();
+    return json(result);
+  });
   router.post('/api/bookmarks/import', async c => {
     const input = await body(c.req.raw);
     const html = text(input.html, 'html', MAX_BODY);
@@ -364,15 +381,13 @@ export async function createApp(options: AppOptions) {
       const project = requireProject(id);
       if (project.kind !== 'project') throw new ApiError(400, 'Services are links and cannot be tunneled');
       const runtime = processes.runtime(id);
-      if (runtime.status !== 'running' || runtime.mode === 'build') throw new ApiError(409, 'Start development or production before opening a Cloudflare tunnel');
       const port = tunnelPort(project);
       if (!port) throw new ApiError(400, 'Configure a project port or an address with a port before opening a tunnel');
-      // An open tunnel is reused with the access it started with; a new one takes the
-      // project's effective (layered) access now.
-      const rules = tunnels.get(projectTunnel(id)) ? [] : tunnelRules(accessResolver().fields(project).tunnelAccess!);
-      // Wrapped so the mutation lock is released while Cloudflare connects; Stop
-      // and Delete can still run and close a tunnel that is starting.
-      return { ready: tunnels.start(projectTunnel(id), port, rules) };
+      // Opening needs a running server; an open tunnel (which outlives stops) can always re-apply its port and access.
+      if (!tunnels.get(projectTunnel(id)) && (runtime.status !== 'running' || runtime.mode === 'build')) throw new ApiError(409, 'Start development or production before opening a Cloudflare tunnel');
+      const rules = tunnelRules(accessResolver().fields(project).tunnelAccess!);
+      // Wrapped so the mutation lock is released while Cloudflare connects; Delete can still run.
+      return { ready: tunnels.open(projectTunnel(id), port, rules) };
     });
     const tunnel = await opening.ready;
     return json({ project: processes.project(requireProject(id)), tunnel });
@@ -401,13 +416,17 @@ export async function createApp(options: AppOptions) {
       throw new ApiError(409, 'Stop the project before changing its directory or kind');
     }
     store.update(changed);
+    await tunnels.sync();
     return json({ project: processes.project(changed) });
   });
   router.delete('/api/projects/:id', async c => {
     const id = c.get('projectId');
     await processes.stop(id);
+    // Deleting the registration is the user's explicit close; a Cloudflare failure keeps it.
+    await tunnels.forget(projectTunnel(id));
     store.remove(id);
     processes.forget(id);
+    await tunnels.sync();
     return json({ ok: true });
   });
   router.post('/api/projects/:id/start', async c => {
@@ -427,7 +446,7 @@ export async function createApp(options: AppOptions) {
     return json({ project: await processes.restart(c.get('project'), input.mode) });
   });
   router.delete('/api/projects/:id/tunnel', async c => {
-    await tunnels.stop(projectTunnel(c.get('projectId')));
+    await tunnels.close(projectTunnel(c.get('projectId')));
     return json({ project: processes.project(c.get('project')) });
   });
   router.post('/api/projects/:id/duplicate', async c => duplicate(c.get('projectId'), await body(c.req.raw)));
@@ -456,7 +475,8 @@ export async function createApp(options: AppOptions) {
         if (threadTimer) clearInterval(threadTimer);
         await Promise.allSettled([...requests, threadCheck]);
         await processes.close();
-        await tunnels.close();
+        // Open tunnels and their connector outlive the panel; only finish pending Cloudflare work.
+        await tunnels.shutdown();
         store.close();
       })();
     }

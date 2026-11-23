@@ -141,11 +141,7 @@ export class ProcessManager {
       record.runtime.exitCode = exitCode;
       record.runtime.status = record.cancelled || exitCode === 0 ? 'stopped' : 'failed';
       this.log(project.id, 'system', record.cancelled ? 'Stopped' : `Command exited${exitCode === null ? ' after a signal' : ` with code ${exitCode}`}`);
-      // A tunnel never outlives the command it exposes, whether stopped or exited.
-      if (this.tunnels?.get(projectTunnel(project.id))) {
-        this.log(project.id, 'system', 'Closing Cloudflare tunnel');
-        await this.tunnels.stop(projectTunnel(project.id));
-      }
+      // An open Cloudflare tunnel stays: only the user closes it. Its link answers again once the project runs.
     }
   }
 

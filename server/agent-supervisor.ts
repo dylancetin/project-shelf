@@ -15,7 +15,7 @@ export interface AgentSupervisor {
   ready(record: AgentServerRecord, state: UnitState): Promise<boolean>;
 }
 
-async function run(args: string[], allowFailure = false) {
+export async function run(args: string[], allowFailure = false) {
   const child = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env, LC_ALL: 'C' } });
   const timeout = setTimeout(() => child.kill('SIGKILL'), 20000);
   try {

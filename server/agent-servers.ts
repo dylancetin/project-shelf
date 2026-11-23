@@ -7,7 +7,7 @@ import { ApiError, errorMessage } from './errors';
 import type { Store } from './store';
 import { SystemdAgentSupervisor, type AgentSupervisor } from './agent-supervisor';
 import { T3StateThreads, T3_THREAD_ID, type T3Thread, type T3Threads } from './t3-threads';
-import { agentTunnel, type TunnelManager } from './tunnels';
+import { agentTunnel, type TunnelManager, type TunnelTarget } from './tunnels';
 import { TunnelAccessResolver, tunnelRules } from './tunnel-access';
 import type { TunnelState } from '../shared/tunnels';
 
@@ -160,11 +160,9 @@ export class AgentServers {
   async restart(id: string): Promise<AgentServer> {
     return this.locked(async () => {
       const record = this.require(id);
-      // A tunnel never outlives the process it exposes. Once the old one is stopped, whatever listens on this
-      // port next (nothing, or another program when the restart is refused) is not what the link was opened for.
+      // An open Cloudflare tunnel stays through the restart; only the user closes it.
       try { await this.supervisor.stop(record); }
       catch (error) { throw new ApiError(502, `Agent server ${id} could not be stopped, so it was not restarted: ${errorMessage(error)}`); }
-      finally { await this.tunnels?.stop(agentTunnel(id)); }
       // Keep the URL stable. Never kill a program that took the port while the
       // preview was down; record why it stays stopped instead.
       try { Bun.listen({ hostname: '::', port: record.port, socket: { data() {} } }).stop(true); }
@@ -185,44 +183,60 @@ export class AgentServers {
     });
   }
 
-  /** Opens a Cloudflare quick tunnel to a ready preview's port; resolves once its public URL works. */
+  /** The port and effective access of a preview's tunnel; null when the preview is gone. */
+  tunnelTarget(id: string): TunnelTarget {
+    const record = this.records().find(row => row.id === id);
+    return record ? { port: record.port, rules: tunnelRules(this.access().resolveDirectory(record.cwd)) } : null;
+  }
+
+  /**
+   * Opens a persistent Cloudflare tunnel to a ready preview's port; resolves once its link works.
+   * On an open tunnel it applies the current access instead.
+   */
   async openTunnel(id: string): Promise<TunnelState> {
     if (!this.tunnels) throw new ApiError(503, 'Cloudflare tunnels are not available on this server');
     const tunnels = this.tunnels;
     const record = this.require(id);
     if (!tunnels.get(agentTunnel(id)) && !(await this.view(record)).ready) throw new ApiError(409, 'Wait until the preview is ready before opening a Cloudflare tunnel');
     // A preview takes the layered access of its folder (directly or through a Git worktree's
-    // main checkout), else the Settings default. An open tunnel keeps the access it started with.
-    const rules = tunnels.get(agentTunnel(id)) ? [] : tunnelRules(this.access().resolveDirectory(record.cwd));
+    // main checkout), else the Settings default.
+    const rules = tunnelRules(this.access().resolveDirectory(record.cwd));
     // A Stop that lands while readiness was checked wins; never tunnel a deleted preview.
     this.require(id);
-    return tunnels.start(agentTunnel(id), record.port, rules);
+    return tunnels.open(agentTunnel(id), record.port, rules);
   }
   async closeTunnel(id: string) {
     this.require(id);
-    await this.tunnels?.stop(agentTunnel(id));
+    await this.tunnels?.close(agentTunnel(id));
     return { ok: true };
   }
 
-  async delete(id: string) {
+  /**
+   * Stops and removes a preview. A preview with an open Cloudflare tunnel is only removed by the
+   * user (`by: 'user'`), never by an agent or the automatic thread check; removing it closes the tunnel.
+   */
+  async delete(id: string, by: 'user' | 'agent' | 'automatic' = 'user') {
     return this.locked(async () => {
       const row = this.records().find(record => record.id === id);
       if (!row) return { ok: true }; // safe repeated deletion
       const record = this.require(id);
+      if (by !== 'user' && this.tunnels?.get(agentTunnel(id))) {
+        throw new ApiError(409, `Agent preview ${id} has an open Cloudflare tunnel, so only the user can remove it in Project Shelf`);
+      }
+      // Close the public link first; a failure keeps everything as it was.
+      await this.tunnels?.forget(agentTunnel(id));
       await this.supervisor.stop(record); // failure must retain the registration
       this.store.db.transaction(() => {
         this.store.db.query('UPDATE agent_server_requests SET deleted = 1 WHERE request_key = ?').run(record.requestKey);
         this.store.db.query('DELETE FROM agent_servers WHERE id = ?').run(id);
       })();
-      // Stopping a preview always closes its public tunnel too.
-      await this.tunnels?.stop(agentTunnel(id));
       return { ok: true };
     });
   }
 
   // Fully delete previews whose top-level T3 thread is settled, archived or
-  // deleted. Snoozed threads (even settled ones), missing threads, unreadable T3 state and records without a thread
-  // are left alone. A failed stop keeps the record for the next check.
+  // deleted. Snoozed threads (even settled ones), missing threads, unreadable T3 state, records without a thread
+  // and previews with an open Cloudflare tunnel are left alone. A failed stop keeps the record for the next check.
   async removeSettled() {
     const records = this.records().filter(record => record.threadId);
     const removed: { id: string; name: string; threadId: string; status: AgentServerThread['status'] }[] = [];
@@ -231,9 +245,9 @@ export class AgentServers {
     const threads = this.threads.lookup(records.map(record => record.threadId!));
     for (const record of records) {
       const thread = threads.get(record.threadId!);
-      if (!thread || !INACTIVE_THREADS.has(thread.status)) continue;
+      if (!thread || !INACTIVE_THREADS.has(thread.status) || this.tunnels?.get(agentTunnel(record.id))) continue;
       const item = { id: record.id, name: record.name, threadId: thread.rootId ?? thread.id, status: thread.status };
-      try { await this.delete(record.id); removed.push(item); }
+      try { await this.delete(record.id, 'automatic'); removed.push(item); }
       catch (error) { failed.push({ ...item, error: errorMessage(error) }); }
     }
     return { removed, failed };

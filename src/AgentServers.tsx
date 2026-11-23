@@ -98,7 +98,7 @@ function AgentServerRow({ server, available, onRemoved, onChanged }: { server: A
         : <IconButton label={`Visit ${server.name}`} title={available ? 'Visit is available once the preview is ready' : 'Reconnect to visit this preview'} disabled><ArrowSquareOut size={16} aria-hidden="true" /></IconButton>}
       <IconButton label={`${expanded ? 'Hide' : 'Show'} logs for ${server.name}`} className={expanded ? 'selected' : ''} aria-expanded={expanded} aria-controls={`agent-logs-${server.id}`} onClick={() => setExpanded(value => !value)}><TerminalWindow size={16} aria-hidden="true" /></IconButton>
       <TunnelButtons name={server.name} tunnel={server.tunnel} access={access} actions={tunnel} disabledReason={!available ? 'Reconnect to open a Cloudflare tunnel' : !server.ready ? 'Wait until the preview is ready to open a Cloudflare tunnel' : null} />
-      <IconButton label={busy ? `Stopping ${server.name}` : `Stop ${server.name}`} title={busy ? `Stopping ${server.name}…` : `Stop ${server.name}${server.tunnel ? ' and close its Cloudflare tunnel' : ''}`} className="agent-stop" disabled={!available || busy} aria-busy={busy || undefined} onClick={() => void stop()}>{busy ? <Spinner size={14} /> : <Stop size={14} weight="fill" aria-hidden="true" />}</IconButton>
+      <IconButton label={busy ? `Stopping ${server.name}` : `Stop ${server.name}`} title={busy ? `Stopping ${server.name}…` : `Stop and remove ${server.name}${server.tunnel ? ', closing its Cloudflare tunnel' : ''}`} className="agent-stop" disabled={!available || busy} aria-busy={busy || undefined} onClick={() => void stop()}>{busy ? <Spinner size={14} /> : <Stop size={14} weight="fill" aria-hidden="true" />}</IconButton>
       {server.tunnel?.url && <a className="agent-tunnel-link" href={server.tunnel.url} target="_blank" rel="noreferrer" title={`Open ${server.tunnel.url} (${protectedLink ? 'one-time PIN' : 'public'})`}>{new URL(server.tunnel.url).host}</a>}
     </div>
     {tunnel.toast}
@@ -107,16 +107,16 @@ function AgentServerRow({ server, available, onRemoved, onChanged }: { server: A
   </div>;
 }
 
-/** Replaces the access line while the open tunnel still uses the access it started with. */
+/** Replaces the access line while Cloudflare still has the tunnel's previous access (the update failed). */
 function AgentTunnelStale({ server, actions, available }: { server: AgentServer; actions: TunnelActions; available: boolean }) {
   const reopening = actions.pending === 'reopening';
   const words = server.tunnel ? staleWords(server.tunnel, server.tunnelAccess) : null;
   return <span className="agent-tunnel-stale" role="status">
     <Warning size={12} weight="bold" aria-hidden="true" />
-    <span>{reopening || !words ? 'Reopening the tunnel with current access…' : <>{words.wasPublic ? 'Open to anyone with the link' : `Open to ${words.was}`} · now {words.nowPublic ? 'anyone with the link' : words.now}</>}</span>
+    <span title={server.tunnel?.error}>{reopening || !words ? 'Updating tunnel access…' : <>{words.wasPublic ? 'Open to anyone with the link' : `Open to ${words.was}`} · now {words.nowPublic ? 'anyone with the link' : words.now}</>}</span>
     <button type="button" className="text-button" disabled={!available || actions.pending !== null} aria-busy={reopening || undefined}
-      aria-label={`Reopen the Cloudflare tunnel for ${server.name} with current access`} title="Closes this tunnel and opens a new one. The link changes." onClick={() => void actions.reopen()}>
-      {reopening ? <Spinner size={11} /> : null}Reopen
+      aria-label={`Apply current access to the Cloudflare tunnel for ${server.name}`} title="Updates Cloudflare Access for this tunnel. The link stays the same." onClick={() => void actions.reopen()}>
+      {reopening ? <Spinner size={11} /> : null}Apply
     </button>
   </span>;
 }

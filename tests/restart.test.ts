@@ -3,13 +3,14 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createApp } from '../server/app';
 import type { Project } from '../shared/types';
-import { activeThreads, cleanup, fakeCloudflared, FakeAgentSupervisor, files, fixture, processAlive, project, request, shellCommand, until } from './helpers';
+import { activeThreads, cleanup, FakeAgentSupervisor, FakeCloudflare, files, fixture, processAlive, project, request, shellCommand, until } from './helpers';
 
 interface Run { leader: number; child: number; label: string; port: string; apiPort: string }
 
 describe('restarting managed projects (disposable process trees)', () => {
   let root: string;
   let app: Awaited<ReturnType<typeof createApp>>;
+  let cf: FakeCloudflare;
   const apiPort = process.env.API_PORT;
 
   beforeEach(async () => {
@@ -22,14 +23,15 @@ const child = spawn('sleep', ['60'], { stdio: 'ignore' });
 appendFileSync(${JSON.stringify(path.join(root, 'runs'))}, [process.pid, child.pid, process.argv[2], process.env.PORT, process.env.API_PORT ?? 'unset'].join(' ') + '\\n');
 setInterval(() => {}, 1000);` });
     process.env.API_PORT = '4959';
+    cf = new FakeCloudflare();
     app = await createApp({
       dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, processOptions: { stopGraceMs: 150 },
-      agentSupervisor: new FakeAgentSupervisor(), t3Threads: activeThreads,
-      tunnelOptions: { binary: await fakeCloudflared(root), startTimeoutMs: 3000, stopGraceMs: 150 },
+      agentSupervisor: new FakeAgentSupervisor(), t3Threads: activeThreads, tunnelOptions: cf.options(),
     });
   });
   afterEach(async () => {
     await app.close();
+    cf.stop();
     if (apiPort === undefined) delete process.env.API_PORT; else process.env.API_PORT = apiPort;
     await cleanup(root);
   });
@@ -142,21 +144,16 @@ setInterval(() => {}, 1000);` });
     expect(await runs()).toHaveLength(1);
   });
 
-  test('closes the Cloudflare tunnel with the old process', async () => {
+  test('keeps the Cloudflare tunnel open across the restart', async () => {
     const item = add();
     await post(item.id, 'start', { mode: 'dev' });
     await runningAs(item.id, 'dev', 1);
-    expect((await post(item.id, 'tunnel', {})).status).toBe(200);
-    const launches = (await readFile(path.join(root, 'cloudflared.log'), 'utf8')).trim().split('\n');
-    expect(launches).toHaveLength(1);
-    const tunnelPid = Number(launches[0]!.split(' ')[0]);
-    expect(await processAlive(tunnelPid)).toBe(true);
-
+    const { tunnel } = await (await post(item.id, 'tunnel', {})).json();
     const { project: restarted } = await (await post(item.id, 'restart', {})).json() as { project: Project };
-    expect(restarted.runtime.tunnel ?? null).toBeNull();
-    expect(await processAlive(tunnelPid)).toBe(false);
+    expect(restarted.runtime.tunnel?.url).toBe(tunnel.url);
     await runningAs(item.id, 'dev', 2);
-    expect((await state(item.id)).runtime.tunnel ?? null).toBeNull();
+    expect((await state(item.id)).runtime.tunnel?.url).toBe(tunnel.url);
+    expect(cf.routes()).toHaveLength(1);
   });
 
   test('rejects bad requests without touching the running process', async () => {
@@ -227,40 +224,41 @@ describe('restarting agent previews over HTTP', () => {
   let root: string;
   let app: Awaited<ReturnType<typeof createApp>>;
   let supervisor: FakeAgentSupervisor;
+  let cf: FakeCloudflare;
   beforeEach(async () => {
     root = await fixture();
     supervisor = new FakeAgentSupervisor();
+    cf = new FakeCloudflare();
     app = await createApp({
-      dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, agentSupervisor: supervisor, t3Threads: activeThreads,
-      tunnelOptions: { binary: await fakeCloudflared(root), startTimeoutMs: 3000, stopGraceMs: 150 },
+      dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, agentSupervisor: supervisor, t3Threads: activeThreads, tunnelOptions: cf.options(),
     });
   });
-  afterEach(async () => { await app.close(); await cleanup(root); });
+  afterEach(async () => { await app.close(); cf.stop(); await cleanup(root); });
 
   async function preview() {
     return app.agentServers.add({ name: 'Preview', cwd: root, command: 'fixture', threadId: 'fixture-thread' });
   }
   async function tunneled() {
     const created = await preview();
-    expect((await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}))).status).toBe(200);
-    const [launch = ''] = (await readFile(path.join(root, 'cloudflared.log'), 'utf8')).trim().split('\n');
-    const pid = Number(launch.split(' ')[0]);
-    expect(await processAlive(pid)).toBe(true);
-    return { created, pid };
+    const response = await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}));
+    expect(response.status).toBe(200);
+    const { tunnel } = await response.json();
+    return { created, url: tunnel.url as string };
   }
   const restart = (id: string) => app.fetch(request(`/api/agent-servers/${id}/restart`, 'POST', {}));
 
   test('an agent preview tunnel takes the access of the project it runs in', async () => {
     app.store.insert(project(root, { tunnelAllowedEmails: ['*@example.com'] }));
     const { created } = await tunneled();
+    const { url } = { url: app.tunnels.get(`agent:${created.id}`)!.url! };
     expect(app.tunnels.get(`agent:${created.id}`)?.allowedEmails).toEqual(['*@example.com']);
-    expect(await readFile(path.join(root, 'cloudflared.log'), 'utf8')).toContain('--allowed-mail *@example.com --url');
+    expect(cf.app(new URL(url).hostname)?.rules).toEqual(['*@example.com']);
   });
 
   test('an agent preview outside every registered project gets a public tunnel', async () => {
     const { created } = await tunneled();
     expect(app.tunnels.get(`agent:${created.id}`)?.allowedEmails).toEqual([]);
-    expect(await readFile(path.join(root, 'cloudflared.log'), 'utf8')).not.toContain('--allowed-mail');
+    expect(cf.apps).toEqual([]);
   });
 
   test('runs the existing in-place restart: same ID, port and URL, one more start', async () => {
@@ -275,39 +273,28 @@ describe('restarting agent previews over HTTP', () => {
     expect(supervisor.starts).toBe(3);
   });
 
-  test('closes the Cloudflare tunnel with the old process', async () => {
-    const { created, pid } = await tunneled();
+  test('keeps the Cloudflare tunnel open through the restart', async () => {
+    const { created, url } = await tunneled();
     const response = await restart(created.id);
     expect(response.status).toBe(200);
-    expect((await response.json()).server.tunnel).toBeNull();
-    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
-    expect(await processAlive(pid)).toBe(false);
+    expect((await response.json()).server.tunnel.url).toBe(url);
     expect(supervisor.starts).toBe(2);
   });
 
-  test('a restart refused because another program took the port still leaves no tunnel to it', async () => {
-    const { created, pid } = await tunneled();
+  test('a refused or failed restart leaves the tunnel for the user to close', async () => {
+    const { created, url } = await tunneled();
     const squatter = Bun.listen({ hostname: '::', port: created.port, socket: { data() {} } });
     try {
-      const response = await restart(created.id);
-      expect(response.status).toBe(409);
+      expect((await restart(created.id)).status).toBe(409);
       expect(supervisor.starts).toBe(1);
-      expect(supervisor.units.size).toBe(0);
     } finally { squatter.stop(true); }
-    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
-    expect(await processAlive(pid)).toBe(false);
-  });
-
-  test('a preview that could not be stopped has its tunnel closed too, since its state is unknown', async () => {
-    const { created, pid } = await tunneled();
     supervisor.stop = async () => { throw new Error('systemctl stop failed'); };
     expect((await restart(created.id)).status).toBe(502);
-    expect(app.tunnels.get(`agent:${created.id}`)).toBeNull();
-    expect(await processAlive(pid)).toBe(false);
+    expect(app.tunnels.get(`agent:${created.id}`)?.url).toBe(url);
   });
 
   test('reports an unknown preview, and refuses cross-origin restarts without restarting', async () => {
-    const { created, pid } = await tunneled();
+    const { created } = await tunneled();
     expect((await app.fetch(request(`/api/agent-servers/${crypto.randomUUID()}/restart`, 'POST', {}))).status).toBe(404);
     const foreign: Record<string, string>[] = [{ Origin: 'https://evil.example' }, { Origin: 'http://dev-page.example:5173' }, { Origin: 'http://beelinkk:5173' },
       { Origin: 'http://beelinkk:5173', 'Sec-Fetch-Site': 'same-site' }, { Origin: 'null' }, { 'Sec-Fetch-Site': 'same-site' }];
@@ -317,6 +304,5 @@ describe('restarting agent previews over HTTP', () => {
       }
     }
     expect(supervisor.starts).toBe(1);
-    expect(await processAlive(pid)).toBe(true);
   });
 });

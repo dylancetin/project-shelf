@@ -172,7 +172,7 @@ function TunnelRow({ view, blocked, onOpen, onClose }: { view: TargetView; block
       </div>
       <div className="embed-row-actions"><TunnelButtons name={view.name} tunnel={tunnel} access={access} disabledReason={blocked} actions={actions} /></div>
     </div>
-    {access && <TunnelStaleNotice stale={stale} open={Boolean(tunnel)} name={view.name} actions={actions} access={access} buttonLabel="Reopen" boxClassName="tunnel-stale"
+    {access && <TunnelStaleNotice stale={stale} open={Boolean(tunnel)} name={view.name} actions={actions} access={access} buttonLabel="Apply" boxClassName="tunnel-stale"
       message={words && <>{words.wasPublic ? 'Still open to anyone with the link.' : `Still limited to ${words.was}.`} Now: {words.nowPublic ? 'anyone with the link' : words.now}{access.source === 'own' ? '' : ` (${accessSourceText(access)})`}.</>} />}
     {actions.toast}
   </>;

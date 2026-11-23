@@ -113,7 +113,7 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
         <TunnelAccessField project={project} mode={draft.tunnelMode} text={draft.tunnelEmails} problem={accessTouched ? accessProblem : null} dirty={dirty} textareaRef={emailsRef}
           onMode={mode => edit('tunnelMode', mode)} onText={text => edit('tunnelEmails', text)} onBlur={() => setAccessTouched(true)} />
         <TunnelStaleNotice stale={tunnelStale} open={Boolean(project.runtime.tunnel)} name={project.name} actions={tunnel} access={tunnelAccess}
-          message={<>{staleText && !staleText.wasPublic ? `The open tunnel still allows only ${staleText.was}.` : 'The open tunnel still allows anyone with the link.'} Reopen it to apply the access above. The link changes.</>} />
+          message={<>{staleText && !staleText.wasPublic ? `The open tunnel still allows only ${staleText.was}.` : 'The open tunnel still allows anyone with the link.'} Cloudflare did not take the change{project.runtime.tunnel?.error ? ` (${project.runtime.tunnel.error})` : ''}. Apply it again; the link stays the same.</>} />
       </>}</div>
       {project.kind === 'project' && <div className="form-section">
         <div className="section-heading"><h3>Project identity</h3><span>Make it easy to find.</span></div>

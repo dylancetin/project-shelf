@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createApp } from '../server/app';
 import { clearLocateCache } from '../server/project-owner';
 import { TunnelAccessResolver, type AccessEntry } from '../server/tunnel-access';
 import type { TunnelAccessMode } from '../shared/tunnels';
-import { activeThreads, cleanup, FakeAgentSupervisor, fakeCloudflared, files, fixture, project, request } from './helpers';
+import { activeThreads, cleanup, FakeAgentSupervisor, FakeCloudflare, files, fixture, project, request } from './helpers';
 
 function entry(id: string, directory: string, mode: TunnelAccessMode = 'inherit', emails: string[] = [], kind = 'project'): AccessEntry {
   return { id, name: id, kind, directory, tunnelAccessMode: mode, tunnelAllowedEmails: emails };
@@ -131,6 +130,7 @@ describe('layered tunnel access through the API', () => {
   let root: string;
   let app: Awaited<ReturnType<typeof createApp>>;
   let supervisor: FakeAgentSupervisor;
+  let cf: FakeCloudflare;
   beforeEach(async () => {
     clearLocateCache();
     root = await fixture();
@@ -143,16 +143,18 @@ describe('layered tunnel access through the API', () => {
       'elsewhere/readme.md': '',
     });
     supervisor = new FakeAgentSupervisor();
+    cf = new FakeCloudflare();
     app = await createApp({
       dbPath: ':memory:', bootstrap: false, initialSettings: { roots: [] }, agentSupervisor: supervisor, t3Threads: activeThreads,
-      tunnelOptions: { binary: await fakeCloudflared(root), startTimeoutMs: 3000, stopGraceMs: 150 },
+      tunnelOptions: cf.options(),
     });
   });
-  afterEach(async () => { await app.close(); await cleanup(root); });
+  afterEach(async () => { await app.close(); cf.stop(); await cleanup(root); });
 
   const patch = (route: string, data: unknown) => app.fetch(request(route, 'PATCH', data));
   const get = async (id: string) => (await (await app.fetch(request('/api/projects'))).json()).projects.find((item: { id: string }) => item.id === id);
-  const launches = async () => (await readFile(path.join(root, 'cloudflared.log'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean);
+  /** Access rules Cloudflare holds for each open tunnel. */
+  const applied = () => cf.apps.map(item => item.rules);
 
   test('older clients that send only the list still work', async () => {
     const item = project(path.join(root, 'main'));
@@ -261,7 +263,7 @@ describe('layered tunnel access through the API', () => {
     const response = await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}));
     expect(response.status).toBe(200);
     expect((await response.json()).tunnel.allowedEmails).toEqual(['*@dernek.example.org']);
-    expect((await launches())[0]).toContain('--allowed-mail *@dernek.example.org --url');
+    expect(applied()).toEqual([['*@dernek.example.org']]);
   });
 
   test('a preview outside every project takes the Settings default', async () => {
@@ -269,7 +271,7 @@ describe('layered tunnel access through the API', () => {
     const created = await app.agentServers.add({ name: 'Preview', cwd: path.join(root, 'elsewhere'), command: 'fixture', threadId: 'fixture-thread' });
     expect(created).toMatchObject({ owner: null, tunnelAccess: { source: 'default', allowedEmails: ['me@example.com'] } });
     expect((await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}))).status).toBe(200);
-    expect((await launches())[0]).toContain('--allowed-mail me@example.com --url');
+    expect(applied()).toEqual([['me@example.com']]);
   });
 
   test('refuses to open a tunnel whose combined list exceeds what Cloudflare accepts', async () => {
@@ -281,6 +283,6 @@ describe('layered tunnel access through the API', () => {
     const response = await app.fetch(request(`/api/agent-servers/${created.id}/tunnel`, 'POST', {}));
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(/60 rules from One, Two.*at most 50/);
-    expect(await launches()).toHaveLength(0);
+    expect(cf.calls).toEqual([]);
   });
 });
