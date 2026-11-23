@@ -24,7 +24,10 @@ const idPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
 export const api = {
   agentServers: (signal?: AbortSignal) => request<{ servers: AgentServer[] }>('/agent-servers', { signal }),
-  stopAgentServer: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Stops the process tree and keeps the registration, port, and any open tunnel; restart runs it again. */
+  stopAgentServer: (id: string) => request<{ server: AgentServer }>(`/agent-servers/${encodeURIComponent(id)}/stop`, body({})),
+  /** Stops the preview, closes its tunnel, and deletes its registration. */
+  removeAgentServer: (id: string) => request<{ ok: boolean }>(`/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   agentLogs: (id: string, signal?: AbortSignal) => request<{ logs: string }>(`/agent-servers/${encodeURIComponent(id)}/logs`, { signal }),
   restartAgentServer: (id: string) => request<{ server: AgentServer }>(`/agent-servers/${encodeURIComponent(id)}/restart`, body({})),
   openAgentTunnel: (id: string) => request<{ tunnel: TunnelState }>(`/agent-servers/${encodeURIComponent(id)}/tunnel`, body({})),

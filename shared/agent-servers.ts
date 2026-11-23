@@ -13,6 +13,8 @@ export interface AgentServerRecord {
   /** T3 Code thread that started the preview. Absent on records created before thread ownership. */
   threadId?: string;
   launchError?: string;
+  /** Set when a user or agent stopped the preview on purpose (POST /api/agent-servers/:id/stop, MCP `stop`); cleared by restart. */
+  stoppedAt?: string;
 }
 
 /**

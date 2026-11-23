@@ -14,6 +14,7 @@ import type { TunnelState } from '../shared/tunnels';
 const INACTIVE_THREADS = new Set<AgentServerThread['status']>(['settled', 'archived', 'deleted']);
 // Snoozed threads keep their previews and may start new ones.
 const LIVE_THREADS = new Set<AgentServerThread['status']>(['active', 'snoozed']);
+export const STOPPED_BY_REQUEST = 'Stopped by request; start it to run again';
 
 // Shared by app instances in this process. SQLite's unique port index also
 // reserves ports across processes; there is no check-then-insert allocation race.
@@ -79,10 +80,11 @@ export class AgentServers {
   async view(record: AgentServerRecord, threads = this.lookupThreads([record]), access = this.access()): Promise<AgentServer> {
     let state;
     let ready = false;
-    try { state = await this.supervisor.state(record); ready = await this.supervisor.ready(record, state); }
+    try { state = await this.supervisor.state(record); ready = state.status === 'running' && await this.supervisor.ready(record, state); }
     catch (error) { state = { status: 'unknown' as const, pid: null, diagnostic: String(error) }; }
     return { ...record, machine: this.machine.name, pid: state.pid, status: state.status,
-      diagnostic: record.launchError || `${state.diagnostic}${!ready && state.status === 'running' ? '; waiting for an owned HTTP listener on the assigned port, bound to 0.0.0.0' : ''}`, ready,
+      diagnostic: record.launchError || (record.stoppedAt && state.status === 'stopped' ? STOPPED_BY_REQUEST
+        : `${state.diagnostic}${!ready && state.status === 'running' ? '; waiting for an owned HTTP listener on the assigned port, bound to 0.0.0.0' : ''}`), ready,
       url: `http://${this.store.settings().defaultHostname || this.machine.name}:${record.port}/`, logsUrl: `/api/agent-servers/${record.id}/logs`,
       thread: this.threadView(record, threads), tunnel: this.tunnels?.get(agentTunnel(record.id)) ?? null,
       tunnelAccess: access.resolveDirectory(record.cwd), owner: access.owner(record.cwd) };
@@ -167,11 +169,13 @@ export class AgentServers {
       // preview was down; record why it stays stopped instead.
       try { Bun.listen({ hostname: '::', port: record.port, socket: { data() {} } }).stop(true); }
       catch {
+        delete record.stoppedAt;
         record.launchError = `Restart blocked: port ${record.port} is in use by another process`;
         this.save(record);
         throw new ApiError(409, `${record.launchError}. Agent server ${id} is stopped; delete it and add a new preview to get a different port.`);
       }
       delete record.launchError;
+      delete record.stoppedAt;
       try { await this.supervisor.start(record); }
       catch (error) {
         record.launchError = `Restart failed: ${String(error)}`;
@@ -180,6 +184,24 @@ export class AgentServers {
       }
       this.save(record);
       return this.settle(record);
+    });
+  }
+
+  /**
+   * Stops the whole owned unit/process tree but keeps the registration, ID, port and URL; restart
+   * runs it again. Nothing starts it automatically, including panel restarts. Repeating it is safe.
+   * An open Cloudflare tunnel stays open; settled-thread removal still applies.
+   */
+  async stop(id: string): Promise<AgentServer> {
+    return this.locked(async () => {
+      const record = this.require(id);
+      try { await this.supervisor.stop(record); }
+      catch (error) { throw new ApiError(502, `Agent server ${id} could not be stopped; its registration and state were left as they were. Retry Stop, or check its logs: ${errorMessage(error)}`); }
+      // The deliberate stop is the latest event: it replaces any earlier launch error.
+      delete record.launchError;
+      record.stoppedAt ??= new Date().toISOString();
+      this.save(record);
+      return this.view(record);
     });
   }
 
@@ -197,7 +219,10 @@ export class AgentServers {
     if (!this.tunnels) throw new ApiError(503, 'Cloudflare tunnels are not available on this server');
     const tunnels = this.tunnels;
     const record = this.require(id);
-    if (!tunnels.get(agentTunnel(id)) && !(await this.view(record)).ready) throw new ApiError(409, 'Wait until the preview is ready before opening a Cloudflare tunnel');
+    if (!tunnels.get(agentTunnel(id))) {
+      const view = await this.view(record);
+      if (!view.ready) throw new ApiError(409, record.stoppedAt && view.status === 'stopped' ? 'This preview is stopped; restart it before opening a Cloudflare tunnel' : 'Wait until the preview is ready before opening a Cloudflare tunnel');
+    }
     // A preview takes the layered access of its folder (directly or through a Git worktree's
     // main checkout), else the Settings default.
     const rules = tunnelRules(this.access().resolveDirectory(record.cwd));

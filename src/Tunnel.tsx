@@ -115,7 +115,7 @@ export type TunnelActions = ReturnType<typeof useTunnelActions>;
  * The tunnel switch and copy button, driven by a row's `useTunnelActions`. Opening shows a busy
  * state until the public link works, then copies it.
  */
-export function TunnelButtons({ name, tunnel, access, disabledReason, actions, className = '' }: {
+export function TunnelButtons({ name, tunnel, access, disabledReason, actions, className = '', copy = true }: {
   name: string;
   tunnel: TunnelState | null | undefined;
   access: TunnelAccess | null | undefined;
@@ -123,6 +123,8 @@ export function TunnelButtons({ name, tunnel, access, disabledReason, actions, c
   disabledReason: string | null;
   actions: TunnelActions;
   className?: string;
+  /** Show the copy button beside the switch; rows that put copy next to the link turn it off. */
+  copy?: boolean;
 }) {
   const { pending } = actions;
   const working = pending !== null || tunnel?.status === 'starting';
@@ -145,7 +147,7 @@ export function TunnelButtons({ name, tunnel, access, disabledReason, actions, c
       aria-pressed={Boolean(tunnel)} aria-busy={working || undefined} disabled={working || (!tunnel && Boolean(disabledReason))} onClick={() => void (tunnel ? actions.close() : actions.open())}>
       {working ? <Spinner size={14} /> : warn ? <CloudWarning size={16} weight="fill" aria-hidden="true" /> : <Cloud size={16} weight={tunnel ? 'fill' : 'regular'} aria-hidden="true" />}
     </IconButton>
-    {url && !working && <IconButton className="tunnel-copy" label={`Copy tunnel link for ${name}`} title={`Copy ${url}`} onClick={() => void actions.copy(url)}><Copy size={15} aria-hidden="true" /></IconButton>}
+    {copy && url && !working && <IconButton className="tunnel-copy" label={`Copy tunnel link for ${name}`} title={`Copy ${url}`} onClick={() => void actions.copy(url)}><Copy size={15} aria-hidden="true" /></IconButton>}
   </>;
 }
 
@@ -167,7 +169,7 @@ export function TunnelControls({ name, tunnel, access = null, disabledReason, on
  * One line saying who a tunnel opened now (or the open one) lets in, and where that comes from:
  * "🔒 you@example.com and 1 more · from Dernek Web". Words carry the meaning, not colour.
  */
-export function TunnelAccessLine({ access, tunnel, ownerId, newTab = false, linkable = true, className = '' }: {
+export function TunnelAccessLine({ access, tunnel, ownerId, newTab = false, linkable = true, compact = false, className = '' }: {
   access: TunnelAccess;
   tunnel?: TunnelState | null;
   /** Fallback Manage entry when no folder layer decided the access. */
@@ -175,6 +177,8 @@ export function TunnelAccessLine({ access, tunnel, ownerId, newTab = false, link
   /** In the framed controls, Manage opens in a new tab. */
   newTab?: boolean;
   linkable?: boolean;
+  /** One line, "you@example.com +6 · from …", each part ellipsized; the full wording stays for screen readers and the title. */
+  compact?: boolean;
   className?: string;
 }) {
   const rules = access.allowedEmails;
@@ -185,11 +189,15 @@ export function TunnelAccessLine({ access, tunnel, ownerId, newTab = false, link
   const Icon = rules.length ? LockSimple : GlobeSimple;
   const full = rules.length ? `Allowed through Cloudflare Access (one-time PIN):\n${rules.join('\n')}\n${source}` : `Anyone with the link · ${source}`;
   const href = id ? `/#manage/project/${encodeURIComponent(id)}` : null;
-  return <span className={`tunnel-access-line${caution ? ' is-caution' : ''} ${className}`} title={full}>
+  const from = href
+    ? <a href={newTab ? href : href.slice(1)} target={newTab ? '_blank' : undefined} rel={newTab ? 'noreferrer' : undefined}>{source}{newTab && <ArrowUpRight size={10} weight="bold" aria-hidden="true" />}</a>
+    : source;
+  const short = rules.length > 1 ? `${rules[0]} +${rules.length - 1}` : who;
+  return <span className={`tunnel-access-line${caution ? ' is-caution' : ''}${compact ? ' is-compact' : ''} ${className}`} title={full}>
     <Icon size={12} weight={rules.length ? 'bold' : 'regular'} aria-hidden="true" />
-    <span><span className="sr-only">Tunnel access: </span>{who} · {href
-      ? <a href={newTab ? href : href.slice(1)} target={newTab ? '_blank' : undefined} rel={newTab ? 'noreferrer' : undefined}>{source}{newTab && <ArrowUpRight size={10} weight="bold" aria-hidden="true" />}</a>
-      : source}</span>
+    {compact
+      ? <span><span className="sr-only">Tunnel access: {who}, </span><span className="tunnel-access-who" aria-hidden="true">{short}</span><span aria-hidden="true">·</span>{href ? from : <span className="tunnel-access-from-text">{source}</span>}</span>
+      : <span><span className="sr-only">Tunnel access: </span>{who} · {from}</span>}
   </span>;
 }
 

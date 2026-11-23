@@ -37,7 +37,7 @@ set +x
 export PROJECT_SHELF_MCP_TOKEN="$(bun -e 'const c = await Bun.file("/home/taytay/.t3-nightly/projects/dev-server-panel/data/panel.sqlite.mcp.json").json(); process.stdout.write(c.bearerToken)')"
 ```
 
-Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`, `restart`, `delete`, `projects_list`, `project_run`, and `project_logs` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
+Start the client from that environment. A pre-existing shared OpenCode service does **not** inherit new terminal environment variables: supply the same secret through that service's existing environment/secret configuration and reconnect the MCP. Do not modify or restart unrelated global services automatically. Use OpenCode's `/mcps` interface to confirm `project-shelf` is connected and that `add`, `restart`, `stop`, `delete`, `projects_list`, `project_run`, and `project_logs` are available. Other MCP clients should use their documented HTTP server/header configuration with the same credential. No Project Shelf CLI is installed or required.
 
 The endpoint is stateless: each request gets an independent MCP server/transport. No accounts, OAuth, or CLI is required. A `401` means the configured bearer credential is missing/wrong; a `403` means Host/Origin is not allowed.
 
@@ -72,18 +72,20 @@ The result includes stable `id`, `machineId`, machine name, diagnostic-only `pid
 
 - MCP resource `shelf://agent-servers` lists current records and statuses.
 - MCP resource `shelf://agent-servers/<id>/logs` reads recent journal logs (last 150 lines, at most 64 KiB). Same-origin UI uses `/api/agent-servers` and `/api/agent-servers/<id>/logs`.
-- Home displays Agent Servers **beneath Projects in the same column**, including the browser extension. Each row links to its owning T3 thread. Visit opens the preferred URL; Logs exposes command, worktree, PID, status, and output; Stop stops and removes the run.
+- Home displays Agent Servers **beneath Projects in the same column**, including the browser extension. Each row links to its owning T3 thread. Open visits the preferred URL; Details and logs exposes command, worktree, PID, status, and output; Stop stops the run but keeps it listed (Start runs it again); Remove, after a confirmation, stops it, closes its tunnel, and deletes it.
 - **Leave the server running for manual user verification. Return the reachable URL to the user.** It stays until deleted or until its top-level T3 thread is settled, archived, or deleted: a check every 10 minutes then stops and fully removes it. You do not need to clean up previews when you finish; settling the thread does it. Unknown or unreadable thread state never removes a preview. Panel restart does not stop these independent user-systemd units. Machine reboot does stop them; persistent records remain inspectable and can be removed. No remote execution is implemented.
 
 ## Restart
 
-Call MCP tool **`restart`** with `{ "id": "<server-generated ID>" }` when a preview must pick up configuration or dependency changes, crashed, or stopped after a machine reboot. It stops the entire owned control group, then reruns the **same** `command` in the same `cwd` on the same port, keeping the ID and URL. It returns the same shape as `add`, with a new diagnostic `pid`. Check `ready` and logs as after `add`.
+Call MCP tool **`restart`** with `{ "id": "<server-generated ID>" }` when a preview must pick up configuration or dependency changes, crashed, was stopped with `stop` (by you or the user), or stopped after a machine reboot. It stops the entire owned control group if it runs, then reruns the **same** `command` in the same `cwd` on the same port, keeping the ID and URL. It returns the same shape as `add`, with a new diagnostic `pid`. Check `ready` and logs as after `add`.
 
 - If the old run cannot be stopped, nothing new is started; retry or inspect logs.
 - If another program took the port while the preview was down, the preview stays stopped with a `Restart blocked` diagnostic. Never kill the occupant: delete the preview and `add` a new one with a new `idempotencyKey`.
 - To change the command or worktree, delete and add instead. Prefer restart over delete/add when only the running process needs refreshing, so the user's URL stays valid.
 
 ## Stop and delete
+
+To stop a preview but keep it (same ID, port and URL), call MCP tool **`stop`** with `{ "id": "<server-generated ID>" }`. It stops the entire owned control group and reports `status: "stopped"` with the diagnostic `Stopped by request; start it to run again`. Nothing restarts it automatically, including panel restarts and `add` retries with the same inputs; call `restart` to run it again. A failed stop changes nothing. Repeated stop is safe. A stopped preview is still removed when its thread is settled. Do not restart a preview the user stopped unless asked.
 
 When the user requests cleanup or a preview is intentionally retired, call MCP tool **`delete`** with `{ "id": "<server-generated ID>" }`. It stops the entire owned systemd control group and only then removes registration. A failed stop keeps the row visible for recovery; retry rather than hiding it. Repeated delete is safe. Do not target arbitrary PIDs or systemd units.
 

@@ -88,16 +88,16 @@ describe('extension bridge boundaries', () => {
     expect(validApiRequest({ ...request, id: 'invalid' })).toBe(false);
   });
 
-  test('allows the tunnel, restart, and runtime-target routes, each only as a bounded fixed path', () => {
+  test('allows the tunnel, restart, stop, and runtime-target routes, each only as a bounded fixed path', () => {
     const id = '12345678-1234-1234-1234-123456789abc';
     for (const [path, method] of [
       ['/projects/project-id/tunnel', 'POST'], ['/projects/project-id/tunnel', 'DELETE'], ['/projects/project-id/restart', 'POST'],
-      [`/agent-servers/${id}/tunnel`, 'POST'], [`/agent-servers/${id}/tunnel`, 'DELETE'], [`/agent-servers/${id}/restart`, 'POST'],
+      [`/agent-servers/${id}/tunnel`, 'POST'], [`/agent-servers/${id}/tunnel`, 'DELETE'], [`/agent-servers/${id}/restart`, 'POST'], [`/agent-servers/${id}/stop`, 'POST'],
       [`/runtime-targets?url=${encodeURIComponent('http://beelinkk:5173/page?a=1&b=%20#frag')}`, 'GET'],
     ] as const) {
       expect(validApiRequest({ ...request, path, method, body: '{}' })).toBe(true);
     }
-    for (const path of ['/projects/id/tunnel/extra', '/projects/id/restart/extra', '/projects/id/../tunnel', '/agent-servers/ID/restart', '/agent-servers/not_a_uuid/tunnel',
+    for (const path of ['/projects/id/tunnel/extra', '/projects/id/restart/extra', '/projects/id/../tunnel', '/agent-servers/ID/restart', '/agent-servers/not_a_uuid/tunnel', `/agent-servers/${id}/stop/extra`,
       '/runtime-targets', '/runtime-targets?', '/runtime-targets?url=', '/runtime-targets?url=http://beelinkk:5173/', '/runtime-targets?url=a&url=b', '/runtime-targets?other=1',
       '/runtime-targets?url=a#b', '/runtime-targets/../settings', '/runtime-targets?url=a/../b', `/runtime-targets?url=${'a'.repeat(4097)}`, '/projects?url=a', '/projects/id/logo']) {
       expect(validApiRequest({ ...request, path })).toBe(false);

@@ -57,6 +57,8 @@ body { min-width: 0; margin: 0; overflow: hidden; }
 .embed-actions .button { min-width: 0; padding: 0 4px; }
 .embed-actions .span-2 { grid-column: span 2; }
 .embed-actions .span-3 { grid-column: span 3; }
+.embed-actions .button-remove { color: #a44d43; }
+.embed-actions .button-remove:hover:not(:disabled) { background: #faf3ef; border-color: #e9cfc9; }
 .embed-confirm { padding: 10px 12px; border: 1px solid #efdcd5; border-radius: 6px; background: #fdf4ee; color: #975c4d; font-size: 12px; line-height: 1.55; }
 .embed-confirm > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .embed-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; padding: 10px 0 2px; border-top: 1px solid var(--line); font-size: 12px; }

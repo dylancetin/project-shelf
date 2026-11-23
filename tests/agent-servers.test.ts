@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFile, stat } from 'node:fs/promises';
 import { createApp } from '../server/app';
-import { AgentServers } from '../server/agent-servers';
+import { AgentServers, STOPPED_BY_REQUEST } from '../server/agent-servers';
 import { agentEnvironment, SystemdAgentSupervisor, type AgentSupervisor, type UnitState } from '../server/agent-supervisor';
 import { Store } from '../server/store';
 import { T3StateThreads } from '../server/t3-threads';
@@ -205,6 +205,67 @@ describe('agent preview records', () => {
     }
   });
 
+  test('stop keeps the registration, survives reopening, is idempotent, and restart clears it', async () => {
+    const root = await fixture(); const t3 = await t3Fixture(root); let store = new Store(`${root}/panel.sqlite`); const supervisor = new MockSupervisor();
+    let id = '';
+    try {
+      let servers = new AgentServers(store, supervisor, t3.threads);
+      const created = await servers.add({ name: 'Stop fixture', cwd: root, command: 'fixture', threadId: THREAD });
+      id = created.id;
+      // A failed stop keeps the run, the record and its diagnostic as they were.
+      supervisor.failStop = true;
+      await expect(servers.stop(id)).rejects.toMatchObject({ status: 502 });
+      const unchanged = (await servers.list())[0]!;
+      expect(unchanged).toMatchObject({ id, status: 'running', ready: true }); expect(unchanged.stoppedAt).toBeUndefined();
+      supervisor.failStop = false;
+      // A stale launch error is replaced by the deliberate stop.
+      supervisor.failStart = true;
+      await expect(servers.restart(id)).rejects.toThrow('could not restart');
+      supervisor.failStart = false;
+      const stopped = await servers.stop(id);
+      expect(stopped).toMatchObject({ id, port: created.port, url: created.url, unit: created.unit, status: 'stopped', ready: false, pid: null, diagnostic: STOPPED_BY_REQUEST });
+      expect(stopped.launchError).toBeUndefined(); expect(stopped.stoppedAt).toBeString();
+      expect(supervisor.units.has(created.unit)).toBe(false);
+      const again = await servers.stop(id);
+      expect(again).toMatchObject({ status: 'stopped', diagnostic: STOPPED_BY_REQUEST, stoppedAt: stopped.stoppedAt });
+      // Reopening the panel neither starts it nor forgets why it is stopped.
+      store.close(); store = new Store(`${root}/panel.sqlite`); servers = new AgentServers(store, supervisor, t3.threads);
+      const starts = supervisor.starts;
+      expect((await servers.list())).toMatchObject([{ id, status: 'stopped', diagnostic: STOPPED_BY_REQUEST }]);
+      expect(supervisor.starts).toBe(starts);
+      // Retrying the same add reuses the stopped preview without starting it behind the user's back.
+      expect(await servers.add({ name: 'Stop fixture', cwd: root, command: 'fixture', threadId: THREAD })).toMatchObject({ id, status: 'stopped' });
+      expect(supervisor.starts).toBe(starts);
+      const restarted = await servers.restart(id);
+      expect(restarted).toMatchObject({ id, port: created.port, url: created.url, status: 'running', ready: true });
+      expect(restarted.stoppedAt).toBeUndefined(); expect(supervisor.starts).toBe(starts + 1);
+      // A stopped preview whose port was taken explains the port, not the old stop.
+      await servers.stop(id);
+      const occupant = Bun.listen({ hostname: '0.0.0.0', port: created.port, socket: { data() {} } });
+      try {
+        await expect(servers.restart(id)).rejects.toMatchObject({ status: 409 });
+        expect((await servers.list())[0]!.diagnostic).toContain('Restart blocked');
+      } finally { occupant.stop(true); }
+      await expect(servers.stop(crypto.randomUUID())).rejects.toMatchObject({ status: 404 });
+      await servers.delete(id); id = '';
+    } finally {
+      if (id) await new AgentServers(store, supervisor, t3.threads).delete(id);
+      store.close(); await cleanup(root);
+    }
+  });
+
+  test('settled-thread removal still applies to a stopped preview', async () => {
+    const root = await fixture(); const t3 = await t3Fixture(root); const store = new Store(`${root}/panel.sqlite`); const supervisor = new MockSupervisor();
+    try {
+      const servers = new AgentServers(store, supervisor, t3.threads);
+      const created = await servers.add({ name: 'Stopped then settled', cwd: root, command: 'fixture', threadId: THREAD });
+      await servers.stop(created.id);
+      t3.thread(THREAD, { settled: true });
+      expect((await servers.removeSettled()).removed.map(item => item.id)).toEqual([created.id]);
+      expect(await servers.list()).toEqual([]);
+    } finally { store.close(); await cleanup(root); }
+  });
+
   test('add requires an active T3 thread and never shares a preview across threads', async () => {
     const root = await fixture(); const t3 = await t3Fixture(root); const store = new Store(`${root}/panel.sqlite`); const supervisor = new MockSupervisor();
     try {
@@ -307,7 +368,7 @@ test('MCP authenticated stateless official protocol, tool discovery, concurrent 
     const init = await call('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
     expect(init.status).toBe(200); expect((await init.json()).result.serverInfo.name).toBe('project-shelf-agent-servers');
     const listed = await (await call('tools/list')).json();
-    expect(listed.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list', 'restart']);
+    expect(listed.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list', 'restart', 'stop']);
     const [first, second] = await Promise.all(['one', 'two'].map(key => call('tools/call', { name: 'add', arguments: { name: key, cwd: root, command: 'fixture', threadId: THREAD, idempotencyKey: key } }).then(response => response.json())));
     const a = JSON.parse(first.result.content[0].text); const b = JSON.parse(second.result.content[0].text);
     expect(a.name).toBe('one'); expect(b.name).toBe('two'); expect(a.port).not.toBe(b.port);
@@ -316,6 +377,18 @@ test('MCP authenticated stateless official protocol, tool discovery, concurrent 
     expect(unowned.result.isError).toBe(true);
     const resource = await (await call('resources/read', { uri: `shelf://agent-servers/${a.id}/logs` })).json();
     expect(resource.result.contents[0].text).toContain('fixture stderr');
+    const stopRoute = (id: string, headers: Record<string, string> = { Origin: 'http://127.0.0.1:4958' }) => app.fetch(new Request(`http://127.0.0.1:4958/api/agent-servers/${id}/stop`, { method: 'POST', headers }));
+    expect((await stopRoute(a.id, { Origin: 'https://evil.test' })).status).toBe(403);
+    expect(supervisor.units.has(a.unit)).toBe(true);
+    const uiStop = await stopRoute(a.id);
+    expect(uiStop.status).toBe(200);
+    const { server: stoppedView, ...rest } = await uiStop.json();
+    expect(rest).toEqual({});
+    expect(stoppedView).toMatchObject({ id: a.id, status: 'stopped', diagnostic: STOPPED_BY_REQUEST });
+    expect((await stopRoute(crypto.randomUUID())).status).toBe(404);
+    const mcpStop = await (await call('tools/call', { name: 'stop', arguments: { id: b.id } })).json();
+    expect(JSON.parse(mcpStop.result.content[0].text)).toMatchObject({ id: b.id, status: 'stopped', port: b.port });
+    expect((await app.agentServers.list()).length).toBe(2);
     const uiDelete = await app.fetch(new Request(`http://127.0.0.1:4958/api/agent-servers/${a.id}`, { method: 'DELETE', headers: { Origin: 'http://127.0.0.1:4958' } }));
     expect(uiDelete.status).toBe(200);
     expect((await call('tools/call', { name: 'delete', arguments: { id: b.id } })).status).toBe(200);
@@ -347,15 +420,19 @@ test('official MCP HTTP client initializes, calls tools and reads resources', as
   try {
     const { bearerToken } = await Bun.file(`${root}/panel.sqlite.mcp.json`).json();
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${http.port}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${bearerToken}` } } }));
-    expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list', 'restart']);
+    expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual(['add', 'delete', 'project_logs', 'project_run', 'projects_list', 'restart', 'stop']);
     const result = await client.callTool({ name: 'add', arguments: { name: 'Official client fixture', cwd: root, command: 'fixture', threadId: THREAD } });
     expect(result.isError).not.toBe(true);
     const resource = await client.readResource({ uri: 'shelf://agent-servers' });
     expect(JSON.stringify(resource.contents)).toContain('Official client fixture');
     const server = (await app.agentServers.list())[0]!;
+    const stopped = await client.callTool({ name: 'stop', arguments: { id: server.id } });
+    expect(stopped.isError).not.toBe(true);
+    expect(JSON.parse((stopped.content as { text: string }[])[0]!.text)).toMatchObject({ id: server.id, status: 'stopped', diagnostic: STOPPED_BY_REQUEST });
+    expect((await client.callTool({ name: 'stop', arguments: { id: crypto.randomUUID() } })).isError).toBe(true);
     const restarted = await client.callTool({ name: 'restart', arguments: { id: server.id } });
     expect(restarted.isError).not.toBe(true);
-    expect(JSON.parse((restarted.content as { text: string }[])[0]!.text)).toMatchObject({ id: server.id, port: server.port, url: server.url });
+    expect(JSON.parse((restarted.content as { text: string }[])[0]!.text)).toMatchObject({ id: server.id, port: server.port, url: server.url, status: 'running' });
     const missing = await client.callTool({ name: 'restart', arguments: { id: crypto.randomUUID() } });
     expect(missing.isError).toBe(true);
     expect((missing.content as { text: string }[])[0]!.text).toContain('not found');
@@ -424,6 +501,17 @@ test.skipIf(process.env.SHELF_SYSTEMD_TEST !== '1')('real independent unit survi
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 4000);
     pid = Number(await readFile(`${root}/child.pid`, 'utf8'));
     expect(await (await fetch(`http://127.0.0.1:${restarted.port}/`)).text()).toBe('fixture preview');
+    // Stop ends the whole control group but keeps the record; reopening the panel leaves it stopped,
+    // and restart from the stopped (unloaded) unit runs it again on the same port.
+    const stopped = await app.agentServers.stop(id);
+    expect(stopped).toMatchObject({ status: 'stopped', ready: false, pid: null, port: after.port, diagnostic: STOPPED_BY_REQUEST });
+    await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 4000);
+    expect((await app.agentServers.stop(id)).status).toBe('stopped');
+    await app.close(); app = await createApp({ dbPath, bootstrap: false, t3Threads: t3.threads });
+    expect((await app.agentServers.list())[0]).toMatchObject({ id, status: 'stopped', diagnostic: STOPPED_BY_REQUEST });
+    const resumed = await app.agentServers.restart(id);
+    expect(resumed).toMatchObject({ status: 'running', ready: true, port: after.port, url: after.url });
+    pid = Number(await readFile(`${root}/child.pid`, 'utf8'));
     await app.agentServers.delete(id); id = '';
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 4000);
     expect((await app.agentServers.list()).length).toBe(0);
@@ -447,6 +535,9 @@ test('a ready preview opens a Cloudflare tunnel to its port; only the user remov
     expect(host).toMatch(/^[a-z]+-[a-z]+-[a-z]+-tunnel\.example\.com$/);
     expect(cf.routes()).toEqual([{ hostname: host, service: `http://127.0.0.1:${server.port}` }]);
     expect((await app.agentServers.list())[0]!.tunnel).toEqual(tunnel);
+    // Stopping the preview leaves the tunnel open; only the user closes it.
+    expect((await app.agentServers.stop(server.id)).tunnel).toEqual(tunnel);
+    expect(cf.routes()).toEqual([{ hostname: host, service: `http://127.0.0.1:${server.port}` }]);
     // Neither the thread check nor an agent removes a tunneled preview.
     t3.thread(THREAD, { settled: true });
     expect(await app.agentServers.removeSettled()).toEqual({ removed: [], failed: [] });
@@ -470,6 +561,8 @@ test('a preview that is not ready is not tunneled', async () => {
   try {
     const server = await app.agentServers.add({ name: 'Unready preview', cwd: root, command: 'fixture', threadId: THREAD });
     await expect(app.agentServers.openTunnel(server.id)).rejects.toMatchObject({ status: 409 });
+    await app.agentServers.stop(server.id);
+    await expect(app.agentServers.openTunnel(server.id)).rejects.toThrow('stopped; restart it');
     expect(cf.calls).toEqual([]);
     await app.agentServers.delete(server.id);
   } finally { await app.close(); cf.stop(); await cleanup(root); }

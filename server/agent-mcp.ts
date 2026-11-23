@@ -45,13 +45,13 @@ export function authorizeMcp(request: Request, token: string, hostnames: string[
 export async function handleAgentMcp(c: Context, servers: AgentServers, projects: McpProjects) {
   // A separate stateless server AND transport per request: two clients can use
   // the same JSON-RPC request ID without sharing pending-response maps.
-  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.3.0' });
+  const server = new McpServer({ name: 'project-shelf-agent-servers', version: '1.4.0' });
   const result = async (operation: () => Promise<unknown>) => {
     try { return { content: [{ type: 'text' as const, text: JSON.stringify(await operation(), null, 2) }] }; }
     catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }] }; }
   };
   server.registerTool('add', {
-    description: 'Start or reuse a retained development preview on this machine, owned by your T3 Code thread. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, logs URL, and owning thread. The preview stays until deleted, or until its top-level T3 thread (a subagent\'s parent) is settled, archived or deleted: a check every 10 minutes then stops and removes it, unless the user opened a Cloudflare tunnel to it. A snoozed thread keeps its previews until the snooze wakes. Retry with the same idempotencyKey; do not launch unmanaged background processes.',
+    description: 'Start or reuse a retained development preview on this machine, owned by your T3 Code thread. Sets PORT=5000–5999 and replaces {port} in command. Use the actual worktree cwd. Does not append arguments. Returns ID, diagnostic PID, URL, separate runtime/readiness, logs URL, and owning thread. The preview stays until deleted, or until its top-level T3 thread (a subagent\'s parent) is settled, archived or deleted: a check every 10 minutes then stops and removes it, unless the user opened a Cloudflare tunnel to it. A snoozed thread keeps its previews until the snooze wakes. Retry with the same idempotencyKey; a reused preview that was stopped stays stopped (call restart to run it). Do not launch unmanaged background processes.',
     inputSchema: {
       name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096), command: z.string().min(1).max(16000),
       threadId: z.string().min(1).max(500).describe('Required. Your T3 Code thread ID: the value of the T3CODE_THREAD_ID environment variable in your shell (run printenv T3CODE_THREAD_ID). Never guess or reuse another thread\'s ID.'),
@@ -60,12 +60,18 @@ export async function handleAgentMcp(c: Context, servers: AgentServers, projects
   }, input => result(() => servers.add(input)));
   server.registerTool('restart', {
     title: 'Restart agent server',
-    description: 'Restart an existing agent preview in place: stop its entire owned unit/process tree, then rerun the same saved command in the same cwd on the same port, keeping its ID and URL. Use after config or dependency changes, a crash, or a machine reboot. Returns the same shape as add, with a new diagnostic PID. If the old run cannot be stopped, nothing is started. If another program took the port while it was down, it stays stopped and is not killed; delete it and add a new preview. To change the command or cwd, delete and add instead.',
+    description: 'Restart an existing agent preview in place: stop its entire owned unit/process tree if it runs, then rerun the same saved command in the same cwd on the same port, keeping its ID and URL. Also starts a preview that was stopped (with stop), crashed, or went down in a machine reboot. Use after config or dependency changes. Returns the same shape as add, with a new diagnostic PID. If the old run cannot be stopped, nothing is started. If another program took the port while it was down, it stays stopped and is not killed; delete it and add a new preview. To change the command or cwd, delete and add instead.',
     inputSchema: { id: z.string().uuid().describe('Agent server ID returned by add or shelf://agent-servers') },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   }, ({ id }) => result(() => servers.restart(id)));
+  server.registerTool('stop', {
+    title: 'Stop agent server',
+    description: 'Stop an agent preview without removing it: stops its entire owned unit/process tree and keeps the registration, ID, port and URL, reporting status "stopped". Nothing starts it again automatically, including panel restarts; use restart to run it again, or delete to remove it. Settled-thread auto-removal still applies to stopped previews. An open Cloudflare tunnel stays open. Returns the same shape as add. If the process tree cannot be stopped, nothing changes. Stopping a stopped preview is safe.',
+    inputSchema: { id: z.string().uuid().describe('Agent server ID returned by add or shelf://agent-servers') },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, ({ id }) => result(() => servers.stop(id)));
   server.registerTool('delete', {
-    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration. Only delete when asked or when this preview is no longer wanted; previews are removed automatically after their T3 thread is settled. A preview with an open Cloudflare tunnel is never removed this way or automatically: only the user removes it in Project Shelf. A failed stop retains the record. Repeated deletion is safe.',
+    description: 'Stop the entire owned agent-server unit/process tree, then remove its registration (to stop it but keep it, use stop). Only delete when asked or when this preview is no longer wanted; previews are removed automatically after their T3 thread is settled. A preview with an open Cloudflare tunnel is never removed this way or automatically: only the user removes it in Project Shelf. A failed stop retains the record. Repeated deletion is safe.',
     inputSchema: { id: z.string().uuid() },
   }, ({ id }) => result(() => servers.delete(id, 'agent')));
   server.registerTool('projects_list', {

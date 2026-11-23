@@ -27,11 +27,11 @@ export function Controls(props: ControlsProps) {
     : <AgentControls key={props.target.server.id} {...props} server={props.target.server} />;
 }
 
-type Action = RunMode | 'stop' | 'restart' | 'remove';
+type Action = RunMode | 'start' | 'stop' | 'restart' | 'remove';
 type ActionState = { kind: 'idle' } | { kind: 'busy'; action: Action } | { kind: 'failed'; message: string };
 const IDLE: ActionState = { kind: 'idle' };
 
-const ACTION_VERB: Record<Action, string> = { dev: 'start development for', prod: 'start production for', build: 'build', stop: 'stop', restart: 'restart', remove: 'remove' };
+const ACTION_VERB: Record<Action, string> = { start: 'start', dev: 'start development for', prod: 'start production for', build: 'build', stop: 'stop', restart: 'restart', remove: 'remove' };
 
 function useAction(name: string) {
   const [state, setState] = useState<ActionState>(IDLE);
@@ -104,23 +104,32 @@ function AgentControls({ server, hostnames, pageHost, onChanged, onRemoved }: Co
   const { state, run, dismiss, busyWith } = useAction(server.name);
   const [confirming, setConfirming] = useState(false);
   const active = server.status === 'running' || server.status === 'starting';
+  // Stop and Restart apply whenever a process may be up; Start replaces Restart once it is down.
+  const live = active || server.status === 'stopping' || server.status === 'unknown';
+  const stopping = server.status === 'stopping';
   const changed = (next: AgentServer) => onChanged({ kind: 'agent', server: next });
-  const tunnelBlocked = !server.ready ? 'Wait until the preview is ready to open a Cloudflare tunnel' : null;
+  const tunnelBlocked = !live ? 'Start the preview to open a Cloudflare tunnel' : !server.ready ? 'Wait until the preview is ready to open a Cloudflare tunnel' : null;
+  const keeps = server.tunnel ? ' It stays listed and its Cloudflare tunnel stays open.' : ' It stays listed.';
 
   return <div className="embed-controls">
     {state.kind === 'failed' && <ErrorNotice message={state.message} onDismiss={dismiss} />}
     <div className="embed-actions" role="group" aria-label={`Commands for ${server.name}`}>
-      <ActionButton action="restart" busyWith={busyWith} label="Restart" icon={<ArrowClockwise size={14} aria-hidden="true" />} className="span-3"
-        disabled={server.status === 'stopping'} title="Stop the preview's process group, then start the same command on the same port" onClick={() => void run('restart', async () => changed((await api.restartAgentServer(server.id)).server))} />
-      <ActionButton action="remove" busyWith={busyWith} label="Stop and remove" name={`Stop and remove ${server.name}`} icon={<Trash size={14} aria-hidden="true" />} className="span-3 button-stop"
-        disabled={confirming} title="Stopping an agent preview deletes its registration" onClick={() => setConfirming(true)} />
+      {live
+        ? <ActionButton action="restart" busyWith={busyWith} label="Restart" name={`Restart ${server.name}`} icon={<ArrowClockwise size={14} aria-hidden="true" />} className="span-2"
+          disabled={stopping} title={stopping ? `Wait for ${server.name} to stop` : 'Stop the preview\'s process group, then start the same command on the same port'} onClick={() => void run('restart', async () => changed((await api.restartAgentServer(server.id)).server))} />
+        : <ActionButton action="start" busyWith={busyWith} label="Start" name={`Start ${server.name}`} icon={<Play size={13} weight="fill" aria-hidden="true" />} className="span-2"
+          disabled={false} title="Run the same command on the same port" onClick={() => void run('start', async () => changed((await api.restartAgentServer(server.id)).server))} />}
+      <ActionButton action="stop" busyWith={busyWith} label="Stop" name={`Stop ${server.name}`} icon={<Stop size={13} weight="fill" aria-hidden="true" />} className="span-2 button-stop"
+        disabled={!live || stopping} title={stopping ? `${server.name} is stopping` : live ? `Stop ${server.name}.${keeps}` : 'Not running; use Start'} onClick={() => void run('stop', async () => changed((await api.stopAgentServer(server.id)).server))} />
+      <ActionButton action="remove" busyWith={busyWith} label="Remove" name={`Remove ${server.name}`} icon={<Trash size={14} aria-hidden="true" />} className="span-2 button-remove"
+        disabled={confirming} title={`Stop ${server.name}${server.tunnel ? ', close its Cloudflare tunnel,' : ''} and delete it from the shelf`} onClick={() => setConfirming(true)} />
     </div>
     {confirming && <div className="embed-confirm" role="alertdialog" aria-label={`Remove ${server.name}`}>
-      <p><strong>Remove {server.name}?</strong> This stops the preview{server.tunnel ? ', closes its Cloudflare tunnel,' : ''} and deletes its registration. Agents have to start a new preview to get it back.</p>
+      <p><strong>Remove {server.name}?</strong> This stops the preview{server.tunnel ? ', closes its Cloudflare tunnel,' : ''} and deletes it from the shelf. Agents have to start a new preview to get it back.</p>
       <div>
         <button type="button" className="button button-danger" disabled={busyWith !== null} aria-busy={busyWith === 'remove' || undefined}
-          onClick={() => void run('remove', async () => { await api.stopAgentServer(server.id); onRemoved(view.key); })}>
-          {busyWith === 'remove' ? <Spinner size={14} /> : <Trash size={14} aria-hidden="true" />}Stop and remove
+          onClick={() => void run('remove', async () => { await api.removeAgentServer(server.id); onRemoved(view.key); })}>
+          {busyWith === 'remove' ? <Spinner size={14} /> : <Trash size={14} aria-hidden="true" />}Remove
         </button>
         <button type="button" className="button" disabled={busyWith !== null} autoFocus onClick={() => setConfirming(false)}>Keep it</button>
       </div>

@@ -271,6 +271,7 @@ export async function createApp(options: AppOptions) {
   });
   router.get('/api/agent-servers', async () => json({ servers: await agentServers.list() }));
   router.post('/api/agent-servers/:id/restart', async c => json({ server: await agentServers.restart(c.req.param('id')) }));
+  router.post('/api/agent-servers/:id/stop', async c => json({ server: await agentServers.stop(c.req.param('id')) }));
   router.get('/api/agent-servers/:id/logs', async c => json({ logs: await agentServers.logs(c.req.param('id')) }));
   router.delete('/api/agent-servers/:id', async c => json(await agentServers.delete(c.req.param('id'))));
   router.post('/api/agent-servers/:id/tunnel', async c => json({ tunnel: await agentServers.openTunnel(c.req.param('id')) }));
