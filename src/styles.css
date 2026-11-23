@@ -394,6 +394,48 @@ a[aria-disabled="true"] { cursor: not-allowed; }
 .import-result { display: flex; gap: 10px; padding: 15px; margin-top: 22px; background: #eff6e6; color: #77995b; border: 1px solid #deeccf; border-radius: 5px; }
 .import-result strong { font-size: 13px; color: #658749; font-weight: 500; }
 .import-result p { margin-top: 5px; font-size: 12px; line-height: 1.6; color: #768c62; }
+/* Segmented choice built from native radios: the radios stay in the tab order, visually hidden. */
+.segmented { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); }
+.segmented label { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 12px; color: var(--secondary); font-size: 12px; cursor: pointer; transition: background .16s, color .16s; }
+.segmented label + label { border-left: 1px solid var(--line); }
+@media (hover: hover) { .segmented label:hover { background: var(--surface-subtle); color: var(--ink); } }
+.segmented label:has(input:checked) { background: var(--surface-selected); color: var(--ink); }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+.field-error { margin: 0; color: #975c4d; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.field > textarea[aria-invalid="true"], .tunnel-access-field textarea[aria-invalid="true"] { border-color: #d9b2a6; }
+/* Tunnel access (Details → Connection) */
+.tunnel-access-field { display: block; margin: 0 0 18px; padding: 0; border: 0; min-inline-size: 0; }
+.tunnel-access-field > legend { float: left; width: 100%; padding: 0; margin-bottom: 7px; }
+.tunnel-access-field > legend + * { clear: both; }
+.tunnel-access-field > * + :not(legend) { margin-top: 8px; }
+.tunnel-access-field > .tunnel-access-modes + * { margin-top: 10px; }
+.tunnel-access-field textarea { display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 70px; resize: vertical; padding: 10px 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1.5; outline-offset: 2px; transition: border-color .15s; }
+.tunnel-access-field textarea::placeholder { color: var(--quiet); }
+.tunnel-access-field textarea:focus { border-color: var(--focus); }
+.tunnel-access-field code, .settings-section .field-hint code { font-family: var(--mono); font-size: 11px; }
+.tunnel-access-inherited { display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: 5px; color: var(--quiet); }
+.tunnel-access-inherited > svg { margin-top: 2px; }
+.tunnel-access-inherited > div { flex: 1; min-width: 0; }
+.tunnel-access-inherited strong { display: block; color: var(--secondary); font-size: 13px; font-weight: 500; }
+.tunnel-access-rules { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; color: var(--secondary); font-family: var(--mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.tunnel-access-more { color: var(--quiet); font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+.tunnel-access-from { margin-top: 6px; color: var(--quiet); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.tunnel-access-from a, .tunnel-access-line a { display: inline-flex; align-items: center; gap: 2px; color: var(--secondary); text-decoration: underline; text-decoration-color: var(--line-hover); text-underline-offset: 2px; }
+.tunnel-access-from a:hover, .tunnel-access-line a:hover { color: var(--ink); text-decoration-color: currentColor; }
+.tunnel-public-notice { margin: 0; font-size: 12px; }
+.tunnel-stale-region:focus { outline: none; }
+.tunnel-stale-region:focus-visible > * { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tunnel-stale-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 18px; font-size: 12px; line-height: 1.6; }
+.tunnel-stale-notice > svg { flex: none; }
+.tunnel-stale-notice > .tunnel-stale-text { flex: 1 1 260px; min-width: 0; }
+.tunnel-stale-notice .tunnel-reopen { min-height: 32px; margin-left: auto; font-size: 12px; color: var(--secondary); }
+.tunnel-reopened { margin: 0 0 18px; color: var(--quiet); font-size: 12px; line-height: 1.6; }
+/* One-line tunnel access summary under rows */
+.tunnel-access-line { display: inline-flex; align-items: flex-start; gap: 5px; justify-self: start; max-width: 100%; min-width: 0; color: var(--quiet); font-size: 11px; line-height: 1.5; }
+.tunnel-access-line > svg { flex: none; margin-top: 2.5px; }
+.tunnel-access-line > span { min-width: 0; overflow-wrap: anywhere; }
+.tunnel-access-line.is-caution, .tunnel-access-line.is-caution a { color: #887445; }
+.tunnel-toggle.is-stale, .tunnel-toggle.is-stale:hover:not(:disabled) { color: #887445; }
 .settings-loading { min-height: 240px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--secondary); font-size: 13px; }
 .toast { position: fixed; z-index: 120; bottom: 25px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: min(550px, calc(100% - 40px)); padding: 11px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-size: 13px; color: var(--secondary); line-height: 1.6; }
 .toast-check { display: flex; color: var(--green); }
@@ -515,6 +557,9 @@ a[aria-disabled="true"] { cursor: not-allowed; }
   .empty-state h3 { font-size: 25px; }
   .empty-actions .button { padding: 0 9px; }
   .toast { max-width: calc(100% - 30px); width: max-content; padding: 10px 11px; gap: 8px; }
+  .tunnel-access-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .tunnel-access-modes label { min-height: 40px; padding: 0 6px; text-align: center; }
+  .tunnel-stale-notice .tunnel-reopen { flex-basis: 100%; margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }

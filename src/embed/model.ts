@@ -1,7 +1,7 @@
 import type { EmbedLayout, EmbedSurface } from '../../shared/embed';
 import { serverAliases } from '../../shared/hostnames';
 import type { RuntimeTarget } from '../../shared/runtime-targets';
-import { tunnelPort, type TunnelState } from '../../shared/tunnels';
+import { tunnelPort, type TunnelAccess, type TunnelState } from '../../shared/tunnels';
 import type { LogLine, Project, RunMode } from '../../shared/types';
 
 export type TargetKey = string;
@@ -69,6 +69,10 @@ export interface TargetView {
   startedAt: string | null;
   exitCode: number | null;
   tunnel: TunnelState | null;
+  /** Effective access a tunnel opened now would get; null when the server does not report it. */
+  access: TunnelAccess | null;
+  /** Manage entry to link to when no folder layer decided the access. */
+  ownerId: string | null;
   /** The base for links to this runtime under other server hostnames. */
   address: string;
   avatar: Pick<Project, 'id' | 'name' | 'logo' | 'kind' | 'url'>;
@@ -87,6 +91,7 @@ export function describeTarget(target: RuntimeTarget): TargetView {
       statusLabel: runtime.status === 'running' && runtime.mode === 'build' ? 'Building' : PHASE_LABEL[runtime.status],
       mode: runtime.mode, port: tunnelPort(project), pid: runtime.pid, startedAt: runtime.startedAt, exitCode: runtime.exitCode,
       tunnel: runtime.tunnel ?? null, address: projectAddress(project), avatar: project,
+      access: project.tunnelAccess ?? (project.kind === 'project' ? ownAccess(project.tunnelAllowedEmails ?? []) : null), ownerId: project.id,
     };
   }
   const { server } = target;
@@ -97,8 +102,14 @@ export function describeTarget(target: RuntimeTarget): TargetView {
     key: targetKey(target), kind: 'agent', id: server.id, name: server.name, phase,
     statusLabel: waiting ? 'Not ready' : PHASE_LABEL[server.status],
     mode: null, port: server.port, pid: server.pid, startedAt: null, exitCode: null, tunnel: server.tunnel, address: server.url,
+    access: server.tunnelAccess ?? null, ownerId: server.owner?.id ?? null,
     avatar: { id: server.id, name: server.name, logo: '', kind: 'project', url: server.url },
   };
+}
+
+/** Older servers only send a project's own list; it stands in for the effective access. */
+function ownAccess(rules: string[]): TunnelAccess {
+  return { allowedEmails: rules, source: rules.length ? 'own' : 'none', from: [] };
 }
 
 /** The project's own address: the stored URL on its hostname override, else its port on localhost. */

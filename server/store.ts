@@ -6,14 +6,26 @@ import { DEFAULT_HOSTNAMES } from '../shared/hostnames';
 import { sameMembers } from '../shared/ordering';
 import { DEFAULT_SEARCH_ENGINE, isSearchEngine } from '../shared/search';
 import { ApiError } from './errors';
+import { storedMode } from './tunnel-access';
 
-export type ProjectData = Omit<Project, 'runtime'>;
+/** A stored registration: no runtime state and none of the server-computed tunnel access fields. */
+export type ProjectData = Omit<Project, 'runtime' | 'tunnelAccess' | 'tunnelAccessInherited' | 'tunnelAccessPeers'>;
+const COMPUTED_FIELDS = ['runtime', 'tunnelAccess', 'tunnelAccessInherited', 'tunnelAccessPeers'] as const;
 export const DEFAULT_ROOTS = ['/home/taytay/.t3/projects', '/home/taytay/.t3-nightly/projects', '/home/taytay/workspace'];
 
 function readProject(row: { data: string }): ProjectData {
-  // Existing registrations predate visibility preferences and tunnel access: visible, public tunnels.
+  // Existing registrations predate visibility preferences and tunnel access: visible, and
+  // read (never rewritten) as `custom` when they saved a list, else `inherit`.
   const data = { hidden: false, ...JSON.parse(row.data) } as ProjectData;
-  return { ...data, tunnelAllowedEmails: Array.isArray(data.tunnelAllowedEmails) ? data.tunnelAllowedEmails : [] };
+  const list = Array.isArray(data.tunnelAllowedEmails) ? data.tunnelAllowedEmails.filter(rule => typeof rule === 'string') : [];
+  const tunnelAccessMode = storedMode({ tunnelAccessMode: data.tunnelAccessMode, tunnelAllowedEmails: list });
+  return { ...data, tunnelAccessMode, tunnelAllowedEmails: tunnelAccessMode === 'custom' ? list : [] };
+}
+
+function serialize(data: ProjectData): string {
+  const stored: Record<string, unknown> = { ...data };
+  for (const key of COMPUTED_FIELDS) delete stored[key];
+  return JSON.stringify(stored);
 }
 
 export class Store {
@@ -82,13 +94,13 @@ export class Store {
 
   insert(data: ProjectData): ProjectData {
     this.db.query('INSERT INTO projects (id, directory, url, kind, data) VALUES (?, ?, ?, ?, ?)')
-      .run(data.id, data.directory, data.url, data.kind, JSON.stringify(data));
+      .run(data.id, data.directory, data.url, data.kind, serialize(data));
     return data;
   }
 
   update(data: ProjectData): ProjectData {
     this.db.query('UPDATE projects SET directory = ?, url = ?, kind = ?, data = ? WHERE id = ?')
-      .run(data.directory, data.url, data.kind, JSON.stringify(data), data.id);
+      .run(data.directory, data.url, data.kind, serialize(data), data.id);
     return data;
   }
 
@@ -108,8 +120,9 @@ export class Store {
 
   settings(): Settings {
     const settings = this.getValue<Settings>('settings')!;
-    // Older databases gain the new default without rewriting other preferences.
-    return { ...settings, defaultSearchEngine: isSearchEngine(settings.defaultSearchEngine) ? settings.defaultSearchEngine : DEFAULT_SEARCH_ENGINE };
+    // Older databases gain new defaults without rewriting other preferences.
+    const tunnelAllowedEmails = Array.isArray(settings.tunnelAllowedEmails) ? settings.tunnelAllowedEmails.filter(rule => typeof rule === 'string') : [];
+    return { ...settings, defaultSearchEngine: isSearchEngine(settings.defaultSearchEngine) ? settings.defaultSearchEngine : DEFAULT_SEARCH_ENGINE, tunnelAllowedEmails };
   }
 
   close(): void {

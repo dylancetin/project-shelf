@@ -51,7 +51,11 @@ export class ProcessManager {
   private readonly stopGraceMs: number;
   private readonly maxProcesses: number;
 
-  constructor(options: ProcessOptions = {}, private tunnels?: TunnelManager) {
+  /**
+   * `describe` adds server-computed fields (layered tunnel access) to every project this
+   * manager serializes, so start, restart and stop responses carry them too.
+   */
+  constructor(options: ProcessOptions = {}, private tunnels?: TunnelManager, private describe?: (data: ProjectData) => Partial<Project>) {
     this.maxLogLines = options.maxLogLines ?? 500;
     this.maxLineLength = options.maxLineLength ?? 4000;
     this.stopGraceMs = options.stopGraceMs ?? 1800;
@@ -62,8 +66,9 @@ export class ProcessManager {
     return { ...(this.records.get(id)?.runtime ?? EMPTY_RUNTIME) };
   }
 
-  project(data: ProjectData): Project {
-    return { ...data, runtime: { ...this.runtime(data.id), tunnel: this.tunnels?.get(projectTunnel(data.id)) ?? null } };
+  /** The API shape of a registration. Pass `computed` when serializing many at once (see `describe`). */
+  project(data: ProjectData, computed: Partial<Project> | undefined = this.describe?.(data)): Project {
+    return { ...data, ...computed, runtime: { ...this.runtime(data.id), tunnel: this.tunnels?.get(projectTunnel(data.id)) ?? null } };
   }
 
   logs(id: string): LogLine[] {

@@ -316,6 +316,16 @@ setInterval(() => console.log(token + ':' + mode.toUpperCase() + '_TICK'), 250);
     }
     console.log('[smoke] create, list/read, and hostname edit passed');
 
+    assert.equal(saved.tunnelAccessMode, 'inherit');
+    assert.ok(saved.tunnelAccess && saved.tunnelAccessInherited && Array.isArray(saved.tunnelAccessPeers), 'Projects carry computed tunnel access');
+    const custom = (await api<{ project: Project }>('PATCH', `/api/projects/${original.id}`, { tunnelAccessMode: 'custom', tunnelAllowedEmails: ['Smoke@Example.com'], tunnelAccess: saved.tunnelAccess })).project;
+    assert.deepEqual(custom.tunnelAccess, { source: 'own', from: [{ id: original.id, name: original.name }], allowedEmails: ['smoke@example.com'] });
+    await rejected('PATCH', `/api/projects/${original.id}`, { tunnelAccessMode: 'custom', tunnelAllowedEmails: [] });
+    const inherited = (await api<{ project: Project }>('PATCH', `/api/projects/${original.id}`, { tunnelAccessMode: 'inherit' })).project;
+    assert.deepEqual(inherited.tunnelAllowedEmails, []);
+    assert.deepEqual(inherited.tunnelAccess, saved.tunnelAccess);
+    console.log('[smoke] layered tunnel access modes and computed fields passed');
+
     const candidates = (await api<{ logos: LogoFile[] }>('GET', `/api/projects/${original.id}/logos`)).logos;
     assert.ok(candidates.some(logo => logo.path === 'assets/logo.svg'), 'Fixture logo should be discoverable');
     const logo = await response('GET', `/api/projects/${original.id}/logo?path=${encodeURIComponent('assets/logo.svg')}`);

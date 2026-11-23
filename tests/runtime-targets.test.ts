@@ -23,6 +23,7 @@ function preview(name: string, port: number, status: AgentServer['status'] = 'ru
     id: crypto.randomUUID(), machineId: 'machine', name, cwd: '/tmp/opencode/runtime-targets-fixture', command: 'fixture', port,
     unit: `project-shelf-agent-${name}.service`, createdAt: '2026-01-01T00:00:00.000Z', requestKey: name, machine: 'beelinkk', pid: 1, status,
     ready: status === 'running', url: `http://beelinkk:${port}/`, logsUrl: `/api/agent-servers/${name}/logs`, diagnostic: '', thread: null, tunnel: null,
+    tunnelAccess: { source: 'none', from: [], allowedEmails: [] }, owner: null,
   };
 }
 

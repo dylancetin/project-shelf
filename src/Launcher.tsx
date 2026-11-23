@@ -9,7 +9,7 @@ import { bookmarkUrl, searchBookmarks } from '../shared/browser-bookmarks';
 import { moveWithinSubset } from '../shared/ordering';
 import { api, isActive, projectUrl } from './api';
 import { tunnelPort } from '../shared/tunnels';
-import { TunnelControls } from './Tunnel';
+import { projectTunnelAccess, TunnelControls } from './Tunnel';
 import { IconButton, ProjectAvatar, ProjectLink, Spinner, type OpenProject } from './components';
 import './launcher.css';
 import { useServerAvailable } from './connection';
@@ -180,7 +180,7 @@ function DestinationLink({ destination: { project, url }, group, orderDisabled, 
       </IconButton>
       <IconButton disabled={!available || working || active || !project.buildCommand} label={`Build ${project.name}`} title={project.buildCommand ? `Build ${project.name}` : 'Add a build command in project details'} onClick={() => onAction('build')}><Hammer size={15} aria-hidden="true" /></IconButton>
       <IconButton disabled={!available || working || active || !project.prodCommand} label={`Run production for ${project.name}`} title={project.prodCommand ? `Build and run production for ${project.name}` : 'Add a production command in project details'} onClick={() => onAction('prod')}><RocketLaunch size={15} aria-hidden="true" /></IconButton>
-      <TunnelControls name={project.name} tunnel={project.runtime.tunnel} disabledReason={tunnelBlocked} className="launcher-tunnel" onOpen={openTunnel} onClose={async () => onProjectChange((await api.closeTunnel(project.id)).project)} />
+      <TunnelControls name={project.name} tunnel={project.runtime.tunnel} access={projectTunnelAccess(project)} disabledReason={tunnelBlocked} className="launcher-tunnel" onOpen={openTunnel} onClose={async () => onProjectChange((await api.closeTunnel(project.id)).project)} />
     </div>}
   </div>;
 }

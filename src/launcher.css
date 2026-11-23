@@ -167,3 +167,8 @@ a.agent-thread:hover span { text-decoration: underline; text-underline-offset: 2
 .agent-log-details { margin-top: 10px; overflow-wrap: anywhere; }
 .agent-log-details code { white-space: pre-wrap; }
 .agent-log-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-subtle); padding: 10px; border-radius: 6px; font-size: 11px; }
+.agent-tunnel-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; max-width: 100%; min-width: 0; color: #887445; font-size: 11px; line-height: 1.5; }
+.agent-tunnel-stale > svg { flex: none; }
+.agent-tunnel-stale > span { min-width: 0; overflow-wrap: anywhere; }
+.agent-tunnel-stale .text-button { min-height: 24px; color: #887445; font-size: 11px; font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+.agent-tunnel-stale .text-button:hover:not(:disabled) { color: var(--ink); }

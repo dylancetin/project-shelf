@@ -1,7 +1,7 @@
 import type { Settings } from '../shared/types';
 import { remoteLogoUrl } from '../shared/logos';
 import { isSearchEngine } from '../shared/search';
-import { MAX_TUNNEL_ALLOWED_EMAILS, tunnelAccessRule } from '../shared/tunnels';
+import { MAX_TUNNEL_ALLOWED_EMAILS, TUNNEL_ACCESS_MODES, tunnelAccessRule, type TunnelAccessMode } from '../shared/tunnels';
 import { ApiError } from './errors';
 import { absolutePath, canonicalDirectory, safeRelative } from './paths';
 import type { ProjectData } from './store';
@@ -50,21 +50,36 @@ export function canonicalUrl(value: unknown, allowEmpty = true): string {
 
 const PROJECT_FIELDS = new Set([
   'name', 'description', 'kind', 'directory', 'source', 'url', 'hostname', 'devCommand',
-  'buildCommand', 'prodCommand', 'port', 'logo', 'favorite', 'hidden', 'tunnelAllowedEmails',
+  'buildCommand', 'prodCommand', 'port', 'logo', 'favorite', 'hidden', 'tunnelAccessMode', 'tunnelAllowedEmails',
 ]);
+// Server-computed fields that clients may echo back from a project they received; never stored.
+const IGNORED_PROJECT_FIELDS = new Set(['tunnelAccess', 'tunnelAccessInherited', 'tunnelAccessPeers']);
+
+/** Validates and normalizes a list of tunnel access rules (deduplicated, at most 50). */
+export function tunnelRulesInput(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.length > MAX_TUNNEL_ALLOWED_EMAILS) {
+    throw new ApiError(400, `${field} must be an array of at most ${MAX_TUNNEL_ALLOWED_EMAILS} email addresses or *@domain rules`);
+  }
+  return [...new Set(value.map(entry => {
+    const rule = typeof entry === 'string' ? tunnelAccessRule(entry) : null;
+    if (!rule) throw new ApiError(400, `Tunnel access must be an email address or *@domain, not ${JSON.stringify(String(entry).slice(0, 80))}`);
+    return rule;
+  }))];
+}
 
 export async function projectInput(value: unknown, settings: Settings, previous?: ProjectData): Promise<ProjectData> {
   const input = object(value);
   for (const key of Object.keys(input)) {
-    if (!PROJECT_FIELDS.has(key)) throw new ApiError(400, `Unknown or read-only project field: ${key}`);
+    if (!PROJECT_FIELDS.has(key) && !IGNORED_PROJECT_FIELDS.has(key)) throw new ApiError(400, `Unknown or read-only project field: ${key}`);
   }
   if (!previous && (input.name === undefined || input.kind === undefined)) throw new ApiError(400, 'name and kind are required');
   const now = new Date().toISOString();
   const result: ProjectData = previous ? { ...previous } : {
     id: crypto.randomUUID(), name: '', description: '', kind: 'project', directory: '', source: 'manual',
     url: '', hostname: settings.defaultHostname, devCommand: '', buildCommand: '', prodCommand: '',
-    port: null, logo: '', favorite: false, hidden: false, tunnelAllowedEmails: [], createdAt: now, updatedAt: now,
+    port: null, logo: '', favorite: false, hidden: false, tunnelAccessMode: 'inherit', tunnelAllowedEmails: [], createdAt: now, updatedAt: now,
   };
+  for (const key of IGNORED_PROJECT_FIELDS) delete (result as Record<string, unknown>)[key];
   if (input.kind !== undefined) {
     if (input.kind !== 'project' && input.kind !== 'service') throw new ApiError(400, 'kind must be project or service');
     result.kind = input.kind;
@@ -97,16 +112,7 @@ export async function projectInput(value: unknown, settings: Settings, previous?
       result[field] = input[field];
     }
   }
-  if (input.tunnelAllowedEmails !== undefined) {
-    if (!Array.isArray(input.tunnelAllowedEmails) || input.tunnelAllowedEmails.length > MAX_TUNNEL_ALLOWED_EMAILS) {
-      throw new ApiError(400, `tunnelAllowedEmails must be an array of at most ${MAX_TUNNEL_ALLOWED_EMAILS} email addresses or *@domain rules`);
-    }
-    result.tunnelAllowedEmails = [...new Set(input.tunnelAllowedEmails.map(value => {
-      const rule = typeof value === 'string' ? tunnelAccessRule(value) : null;
-      if (!rule) throw new ApiError(400, `Tunnel access must be an email address or *@domain, not ${JSON.stringify(String(value).slice(0, 80))}`);
-      return rule;
-    }))];
-  }
+  applyTunnelAccess(input, result);
   if (result.kind === 'project' && !result.directory) throw new ApiError(400, 'A project requires an existing directory');
   if (result.kind === 'service' && !result.url) throw new ApiError(400, 'A service requires a URL');
   if (!previous && input.hostname === undefined) {
@@ -129,11 +135,32 @@ export async function projectInput(value: unknown, settings: Settings, previous?
   return result;
 }
 
+/**
+ * Layered tunnel access. With `tunnelAccessMode`, `custom` keeps (or replaces) the own list
+ * and needs at least one rule, while `inherit` and `public` clear it. Without a mode (older
+ * extension bundles send only the list), a non-empty list means `custom` and an empty one
+ * means `inherit`, except that an entry set to `public` stays public.
+ */
+function applyTunnelAccess(input: Record<string, unknown>, result: ProjectData): void {
+  const rules = input.tunnelAllowedEmails === undefined ? undefined : tunnelRulesInput(input.tunnelAllowedEmails, 'tunnelAllowedEmails');
+  let mode: TunnelAccessMode;
+  if (input.tunnelAccessMode !== undefined) {
+    if (!TUNNEL_ACCESS_MODES.includes(input.tunnelAccessMode as TunnelAccessMode)) throw new ApiError(400, `tunnelAccessMode must be ${TUNNEL_ACCESS_MODES.join(', ')}`);
+    mode = input.tunnelAccessMode as TunnelAccessMode;
+  } else if (rules !== undefined) {
+    mode = rules.length ? 'custom' : result.tunnelAccessMode === 'public' ? 'public' : 'inherit';
+  } else return;
+  const list = mode === 'custom' ? rules ?? result.tunnelAllowedEmails ?? [] : [];
+  if (mode === 'custom' && !list.length) throw new ApiError(400, 'Add at least one email, or choose inherit or public');
+  result.tunnelAccessMode = mode;
+  result.tunnelAllowedEmails = list;
+}
+
 export function settingsInput(value: unknown, previous: Settings): Settings {
   const input = object(value);
   const result: Settings = { ...previous };
   for (const key of Object.keys(input)) {
-    if (!['roots', 'hostnames', 'defaultHostname', 'defaultSearchEngine'].includes(key)) throw new ApiError(400, `Unknown or read-only settings field: ${key}`);
+    if (!['roots', 'hostnames', 'defaultHostname', 'defaultSearchEngine', 'tunnelAllowedEmails'].includes(key)) throw new ApiError(400, `Unknown or read-only settings field: ${key}`);
   }
   if (input.roots !== undefined) {
     if (!Array.isArray(input.roots) || input.roots.length > 100) throw new ApiError(400, 'roots must be an array of at most 100 absolute paths');
@@ -148,5 +175,6 @@ export function settingsInput(value: unknown, previous: Settings): Settings {
     if (!isSearchEngine(input.defaultSearchEngine)) throw new ApiError(400, 'defaultSearchEngine must be duckduckgo, google, bing, or brave');
     result.defaultSearchEngine = input.defaultSearchEngine;
   }
+  if (input.tunnelAllowedEmails !== undefined) result.tunnelAllowedEmails = tunnelRulesInput(input.tunnelAllowedEmails, 'tunnelAllowedEmails');
   return result;
 }

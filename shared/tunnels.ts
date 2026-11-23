@@ -12,6 +12,48 @@ export interface TunnelState {
   allowedEmails: string[];
 }
 
+/**
+ * How a project decides who may open its tunnels (and those of agent previews in its folder):
+ * `inherit` takes the nearest folder layer above (or beside) it that sets one, then the
+ * Settings default; `custom` uses the project's own list; `public` explicitly allows anyone
+ * and stops inheritance for this folder and everything below it.
+ */
+export type TunnelAccessMode = 'inherit' | 'custom' | 'public';
+export const TUNNEL_ACCESS_MODES: readonly TunnelAccessMode[] = ['inherit', 'custom', 'public'];
+
+/** An entry that decided an effective access list. */
+export interface TunnelAccessRef { id: string; name: string }
+
+/** Effective (resolved) tunnel access, computed by the server. */
+export interface TunnelAccess {
+  /** Effective rules; empty means anyone with the link. */
+  allowedEmails: string[];
+  /**
+   * `own`: the project's own custom list or explicit public. `project`: a folder layer
+   * (`from` names its deciding entries; several when same-folder lists were combined, or the
+   * entry that set public). `default`: the Settings default. `none`: nothing set anywhere.
+   */
+  source: 'own' | 'project' | 'default' | 'none';
+  from: TunnelAccessRef[];
+}
+
+/** True when an open tunnel was started with different rules than the current effective access. */
+export function tunnelAccessStale(tunnel: Pick<TunnelState, 'allowedEmails'> | null | undefined, access: TunnelAccess | null | undefined): boolean {
+  if (!tunnel || !access) return false;
+  const now = new Set(access.allowedEmails), was = new Set(tunnel.allowedEmails ?? []);
+  return now.size !== was.size || [...now].some(rule => !was.has(rule));
+}
+
+/** Where effective access comes from, for lines such as "from Dernek Web". */
+export function describeTunnelSource(access: TunnelAccess): string {
+  if (access.source === 'own') return 'set on this project';
+  if (access.source === 'default') return 'from Settings';
+  if (access.source === 'none') return 'no list set';
+  const names = access.from.map(entry => entry.name);
+  if (names.length <= 1) return names.length ? `from ${names[0]}` : 'from a parent folder';
+  return names.length === 2 ? `from ${names[0]} and ${names[1]}` : `from ${names[0]} and ${names.length - 1} more`;
+}
+
 /** Most access rules one tunnel accepts; Settings stores at most this many. */
 export const MAX_TUNNEL_ALLOWED_EMAILS = 50;
 

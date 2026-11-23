@@ -72,6 +72,18 @@ body { min-width: 0; margin: 0; overflow: hidden; }
 .embed-row-text a { color: var(--tunnel); text-decoration: underline; text-underline-offset: 2px; }
 .embed-row-actions { display: flex; align-items: center; gap: 2px; }
 .embed-row-actions .tunnel-toggle.is-running, .embed-row-actions .tunnel-toggle.is-running:hover:not(:disabled) { color: var(--tunnel); }
+.embed-row-text .tunnel-access-line { font-size: 11px; }
+.embed-row-text .tunnel-access-line span, .embed-row-text .tunnel-access-line a { color: inherit; font-size: inherit; text-decoration-color: var(--line-hover); }
+.embed-row-text .tunnel-access-line a:hover { color: var(--ink); }
+.embed-row-text .tunnel-access-line.is-caution, .embed-row-text .tunnel-access-line.is-caution a { color: #887445; }
+.embed-row-actions .tunnel-toggle.is-stale, .embed-row-actions .tunnel-toggle.is-stale:hover:not(:disabled) { color: #887445; }
+.tunnel-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border: 1px solid #ece4cb; border-radius: 6px; background: #faf5e8; color: #887445; font-size: 11px; line-height: 1.5; }
+.tunnel-stale > svg { flex: none; }
+.tunnel-stale > .tunnel-stale-text { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.embed-stage .tunnel-stale .tunnel-reopen { min-height: 28px; margin-left: auto; padding: 0 8px; }
+.embed-controls .tunnel-reopened { margin: 0; color: var(--quiet); font-size: 11px; line-height: 1.5; }
+.embed-controls .tunnel-stale-region:empty { margin-top: -10px; }
+.embed-tunnel-meta { display: inline-flex; align-items: center; gap: 3px; }
 .embed-hosts { padding-top: 8px; border-top: 1px solid var(--line); }
 .embed-hosts h3 { margin-bottom: 6px; color: var(--quiet); font-size: 11px; font-weight: 500; }
 .embed-hosts ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }

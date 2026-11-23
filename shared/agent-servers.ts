@@ -1,4 +1,4 @@
-import type { TunnelState } from './tunnels';
+import type { TunnelAccess, TunnelAccessRef, TunnelState } from './tunnels';
 
 export interface AgentServerRecord {
   id: string;
@@ -43,6 +43,10 @@ export interface AgentServer extends AgentServerRecord {
   thread: AgentServerThread | null;
   /** Open Cloudflare quick tunnel to this preview's port. */
   tunnel: TunnelState | null;
+  /** Effective access a tunnel opened now would get (resolved from the preview's folder layers, then Settings). */
+  tunnelAccess: TunnelAccess;
+  /** Deepest registered project containing the preview (directly or via its Git worktree's main checkout), for Manage links. */
+  owner: TunnelAccessRef | null;
 }
 
 export interface AddAgentServer {

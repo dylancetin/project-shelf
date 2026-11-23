@@ -8,7 +8,7 @@ import type { Store } from './store';
 import { SystemdAgentSupervisor, type AgentSupervisor } from './agent-supervisor';
 import { T3StateThreads, T3_THREAD_ID, type T3Thread, type T3Threads } from './t3-threads';
 import { agentTunnel, type TunnelManager } from './tunnels';
-import { owningProject } from './project-owner';
+import { TunnelAccessResolver, tunnelRules } from './tunnel-access';
 import type { TunnelState } from '../shared/tunnels';
 
 const INACTIVE_THREADS = new Set<AgentServerThread['status']>(['settled', 'archived', 'deleted']);
@@ -21,7 +21,8 @@ let allocation: Promise<unknown> = Promise.resolve();
 
 export class AgentServers {
   readonly machine: { id: string; name: string };
-  constructor(private store: Store, private supervisor: AgentSupervisor = new SystemdAgentSupervisor(), private threads: T3Threads = new T3StateThreads(), private tunnels?: TunnelManager) {
+  constructor(private store: Store, private supervisor: AgentSupervisor = new SystemdAgentSupervisor(), private threads: T3Threads = new T3StateThreads(), private tunnels?: TunnelManager,
+    private access: () => TunnelAccessResolver = () => new TunnelAccessResolver(store.list(), store.settings().tunnelAllowedEmails ?? [])) {
     store.db.exec(`CREATE TABLE IF NOT EXISTS agent_servers (
       id TEXT PRIMARY KEY, request_key TEXT UNIQUE NOT NULL, port INTEGER UNIQUE NOT NULL, data TEXT NOT NULL
     ); CREATE TABLE IF NOT EXISTS agent_server_requests (request_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);`);
@@ -75,7 +76,7 @@ export class AgentServers {
     if (!LIVE_THREADS.has(thread.status)) throw new ApiError(409, `The top-level T3 Code thread ${thread.rootId ?? threadId} is ${thread.status}; previews tied to it are removed automatically`);
     return threadId;
   }
-  async view(record: AgentServerRecord, threads = this.lookupThreads([record])): Promise<AgentServer> {
+  async view(record: AgentServerRecord, threads = this.lookupThreads([record]), access = this.access()): Promise<AgentServer> {
     let state;
     let ready = false;
     try { state = await this.supervisor.state(record); ready = await this.supervisor.ready(record, state); }
@@ -83,13 +84,15 @@ export class AgentServers {
     return { ...record, machine: this.machine.name, pid: state.pid, status: state.status,
       diagnostic: record.launchError || `${state.diagnostic}${!ready && state.status === 'running' ? '; waiting for an owned HTTP listener on the assigned port, bound to 0.0.0.0' : ''}`, ready,
       url: `http://${this.store.settings().defaultHostname || this.machine.name}:${record.port}/`, logsUrl: `/api/agent-servers/${record.id}/logs`,
-      thread: this.threadView(record, threads), tunnel: this.tunnels?.get(agentTunnel(record.id)) ?? null };
+      thread: this.threadView(record, threads), tunnel: this.tunnels?.get(agentTunnel(record.id)) ?? null,
+      tunnelAccess: access.resolveDirectory(record.cwd), owner: access.owner(record.cwd) };
   }
   /** All previews, or only those assigned `port`. */
   async list(port?: number) {
     const records = this.records().filter(record => port === undefined || record.port === port).map(record => this.require(record.id));
     const threads = this.lookupThreads(records);
-    return Promise.all(records.map(record => this.view(record, threads)));
+    const access = this.access();
+    return Promise.all(records.map(record => this.view(record, threads, access)));
   }
   async logs(id: string) {
     const record = this.require(id);
@@ -188,11 +191,12 @@ export class AgentServers {
     const tunnels = this.tunnels;
     const record = this.require(id);
     if (!tunnels.get(agentTunnel(id)) && !(await this.view(record)).ready) throw new ApiError(409, 'Wait until the preview is ready before opening a Cloudflare tunnel');
-    // A preview shares the access of the project it belongs to (directly or through a Git worktree).
-    const owner = tunnels.get(agentTunnel(id)) ? null : await owningProject(record.cwd, this.store.list());
+    // A preview takes the layered access of its folder (directly or through a Git worktree's
+    // main checkout), else the Settings default. An open tunnel keeps the access it started with.
+    const rules = tunnels.get(agentTunnel(id)) ? [] : tunnelRules(this.access().resolveDirectory(record.cwd));
     // A Stop that lands while readiness was checked wins; never tunnel a deleted preview.
     this.require(id);
-    return tunnels.start(agentTunnel(id), record.port, owner?.tunnelAllowedEmails ?? []);
+    return tunnels.start(agentTunnel(id), record.port, rules);
   }
   async closeTunnel(id: string) {
     this.require(id);

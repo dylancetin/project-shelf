@@ -21,6 +21,7 @@ import { tunnelPort } from '../shared/tunnels';
 import { isLoopbackHostname } from '../shared/hostnames';
 import { effectivePort, resolveRuntimeTargets, type RuntimeTargetsResponse } from '../shared/runtime-targets';
 import { EMBED_PAGE, embedFramingPolicy } from './embed';
+import { TunnelAccessResolver, tunnelRules } from './tunnel-access';
 
 const MAX_BODY = 5 * 1024 * 1024;
 const JSON_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -120,8 +121,17 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 export async function createApp(options: AppOptions) {
   const store = new Store(options.dbPath, options.initialSettings);
   const tunnels = new TunnelManager(options.tunnelOptions);
-  const processes = new ProcessManager(options.processOptions, tunnels);
-  const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads, tunnels);
+  // Layered tunnel access is computed from every registration and the Settings default.
+  const accessResolver = (projects = store.list()) => new TunnelAccessResolver(projects, store.settings().tunnelAllowedEmails ?? []);
+  // Every Project the API returns passes through processes.project, which adds the computed access fields.
+  const processes = new ProcessManager(options.processOptions, tunnels, data => accessResolver().fields(data));
+  const agentServers = new AgentServers(store, options.agentSupervisor, options.t3Threads, tunnels, accessResolver);
+  /** All registrations in API shape, resolving tunnel access once for the whole list. */
+  function projectViews() {
+    const projects = store.list();
+    const access = accessResolver(projects);
+    return projects.map(project => processes.project(project, access.fields(project)));
+  }
   const agentToken = mcpCredential(options.dbPath);
   let scanning: ReturnType<typeof scanRoots> | null = null;
   let closing = false;
@@ -236,7 +246,7 @@ export async function createApp(options: AppOptions) {
     authorizeMcp(c.req.raw, agentToken, store.settings().hostnames);
     if (c.req.method !== 'POST') return json({ error: 'Stateless MCP accepts POST only' }, 405);
     return handleAgentMcp(c, agentServers, {
-      list: () => store.list().map(project => processes.project(project)),
+      list: projectViews,
       // Share the HTTP mutation lock so a run cannot race project edits/deletion.
       run: (id, mode) => locked(id, async () => {
         if (closing) throw new ApiError(503, 'The server is shutting down');
@@ -272,14 +282,14 @@ export async function createApp(options: AppOptions) {
     const agentServersOnPort = await agentServers.list(effectivePort(page));
     const reached = new URL(c.req.url);
     const targets = resolveRuntimeTargets(page, {
-      projects: store.list().map(project => processes.project(project)),
+      projects: projectViews(),
       agentServers: agentServersOnPort,
       hostnames: store.settings().hostnames,
       panel: { port: c.env.panelPort ?? null, origins: [reached.origin, TRUSTED_PANEL_ORIGIN], loopback: isLoopbackHostname(reached.hostname) },
     });
     return json({ targets } satisfies RuntimeTargetsResponse);
   });
-  router.get('/api/projects', () => json({ projects: store.list().map(project => processes.project(project)) }));
+  router.get('/api/projects', () => json({ projects: projectViews() }));
   router.post('/api/projects', async c => {
     const project = await projectInput(await body(c.req.raw), store.settings());
     store.insert(project);
@@ -295,7 +305,7 @@ export async function createApp(options: AppOptions) {
       }
     }
     store.reorder(input.kind, input.ids as string[], input.previousIds as string[]);
-    return json({ projects: store.list().map(project => processes.project(project)) });
+    return json({ projects: projectViews() });
   });
   router.get('/api/settings', () => json({ settings: store.settings() }));
   router.patch('/api/settings', async c => {
@@ -357,9 +367,12 @@ export async function createApp(options: AppOptions) {
       if (runtime.status !== 'running' || runtime.mode === 'build') throw new ApiError(409, 'Start development or production before opening a Cloudflare tunnel');
       const port = tunnelPort(project);
       if (!port) throw new ApiError(400, 'Configure a project port or an address with a port before opening a tunnel');
+      // An open tunnel is reused with the access it started with; a new one takes the
+      // project's effective (layered) access now.
+      const rules = tunnels.get(projectTunnel(id)) ? [] : tunnelRules(accessResolver().fields(project).tunnelAccess!);
       // Wrapped so the mutation lock is released while Cloudflare connects; Stop
       // and Delete can still run and close a tunnel that is starting.
-      return { ready: tunnels.start(projectTunnel(id), port, project.tunnelAllowedEmails ?? []) };
+      return { ready: tunnels.start(projectTunnel(id), port, rules) };
     });
     const tunnel = await opening.ready;
     return json({ project: processes.project(requireProject(id)), tunnel });

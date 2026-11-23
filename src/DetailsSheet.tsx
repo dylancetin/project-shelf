@@ -4,15 +4,19 @@ import type { Project, Settings, RunMode, LogoFile, LogLine } from '../shared/ty
 import { api, errorMessage, isActive } from './api';
 import { Dialog, ErrorNotice, Field, HostnameSelect, IconButton, OpenLink, ProjectAvatar, Spinner, Status, type OpenProject } from './components';
 import { useServerAvailable } from './connection';
-import { MAX_TUNNEL_ALLOWED_EMAILS, parseTunnelAccess } from '../shared/tunnels';
+import { parseTunnelAccess, tunnelAccessStale, type TunnelAccessMode } from '../shared/tunnels';
+import { projectTunnelAccess, staleWords, TunnelStaleNotice, useTunnelActions } from './Tunnel';
+import { savedTunnelMode, TunnelAccessField, tunnelRulesProblem } from './TunnelAccessField';
 
 type Tab = 'overview' | 'commands' | 'logs' | 'duplicate' | 'remove';
-type Draft = Pick<Project, 'name' | 'description' | 'directory' | 'url' | 'hostname' | 'devCommand' | 'buildCommand' | 'prodCommand' | 'logo'> & { port: string; tunnelAccess: string };
+type Draft = Pick<Project, 'name' | 'description' | 'directory' | 'url' | 'hostname' | 'devCommand' | 'buildCommand' | 'prodCommand' | 'logo'> & { port: string; tunnelMode: TunnelAccessMode; tunnelEmails: string };
 function draftFor(project: Project): Draft {
-  return { name: project.name, description: project.description, directory: project.directory, url: project.url, hostname: project.hostname, devCommand: project.devCommand, buildCommand: project.buildCommand, prodCommand: project.prodCommand, logo: project.logo, port: project.port === null ? '' : String(project.port), tunnelAccess: (project.tunnelAllowedEmails ?? []).join('\n') };
+  return { name: project.name, description: project.description, directory: project.directory, url: project.url, hostname: project.hostname, devCommand: project.devCommand, buildCommand: project.buildCommand, prodCommand: project.prodCommand, logo: project.logo, port: project.port === null ? '' : String(project.port), tunnelMode: savedTunnelMode(project), tunnelEmails: (project.tunnelAllowedEmails ?? []).join('\n') };
 }
+/** Draft for comparison: the email text only matters while Allowed emails is chosen, and is kept across mode switches. */
+function comparable(draft: Draft) { return JSON.stringify({ ...draft, tunnelEmails: draft.tunnelMode === 'custom' ? draft.tunnelEmails : '' }); }
 
-export function DetailsSheet({ project, settings, busy, launching, launchError, onOpen, onClose, onUpdate, onAction, onDuplicated, onRemoved }: { project: Project; settings: Settings | null; busy: boolean; launching: boolean; launchError: string; onOpen: OpenProject; onClose: () => void; onUpdate: (data: Partial<Project>) => Promise<Project>; onAction: (mode: RunMode | 'stop') => Promise<void>; onDuplicated: (project: Project) => void; onRemoved: () => void }) {
+export function DetailsSheet({ project, settings, busy, launching, launchError, onOpen, onClose, onUpdate, onProjectChange, onAction, onDuplicated, onRemoved }: { project: Project; settings: Settings | null; busy: boolean; launching: boolean; launchError: string; onOpen: OpenProject; onClose: () => void; onUpdate: (data: Partial<Project>) => Promise<Project>; onProjectChange: (project: Project) => void; onAction: (mode: RunMode | 'stop') => Promise<void>; onDuplicated: (project: Project) => void; onRemoved: () => void }) {
   const available = useServerAvailable();
   const disabled = busy || !available;
   const [tab, setTab] = useState<Tab>('overview');
@@ -29,10 +33,19 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
   const [removeConfirmed, setRemoveConfirmed] = useState(false);
   const active = isActive(project);
   const transitional = ['starting', 'stopping'].includes(project.runtime.status);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(draftFor(project));
+  const dirty = comparable(draft) !== comparable(draftFor(project));
+  const [accessTouched, setAccessTouched] = useState(false);
+  const emailsRef = useRef<HTMLTextAreaElement>(null);
+  const accessProblem = draft.tunnelMode === 'custom' ? tunnelRulesProblem(draft.tunnelEmails, true) : null;
+  const tunnelAccess = projectTunnelAccess(project);
+  const tunnel = useTunnelActions({ name: project.name, tunnel: project.runtime.tunnel, access: tunnelAccess,
+    onOpen: async () => { const result = await api.openTunnel(project.id); onProjectChange(result.project); return result.tunnel; },
+    onClose: async () => onProjectChange((await api.closeTunnel(project.id)).project) });
+  const tunnelStale = !dirty && tunnelAccessStale(project.runtime.tunnel, tunnelAccess);
+  const staleText = project.runtime.tunnel && tunnelAccess ? staleWords(project.runtime.tunnel, tunnelAccess) : null;
 
   useEffect(() => {
-    setDraft(draftFor(project)); setTab('overview'); setError(''); setSaved(false); setLogoOpen(false);
+    setDraft(draftFor(project)); setTab('overview'); setError(''); setSaved(false); setLogoOpen(false); setAccessTouched(false);
     setDuplicateName(`${project.name} copy`); setDuplicateDirectory(''); setCopyFiles(false); setRemoveConfirmed(false);
   }, [project.id]);
 
@@ -45,13 +58,12 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
       try { const url = new URL(draft.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error(); }
       catch { setError('Use a complete HTTP or HTTPS address.'); return; }
     }
-    const access = parseTunnelAccess(draft.tunnelAccess);
-    if (access.invalid.length) { setError(`Tunnel access takes email addresses or *@domain rules. Check: ${access.invalid.slice(0, 3).join(', ')}`); return; }
-    if (access.rules.length > MAX_TUNNEL_ALLOWED_EMAILS) { setError(`Tunnel access allows at most ${MAX_TUNNEL_ALLOWED_EMAILS} rules.`); return; }
+    if (project.kind === 'project' && accessProblem) { setAccessTouched(true); setTab('overview'); setError(`Tunnel access: ${accessProblem}`); window.setTimeout(() => emailsRef.current?.focus()); return; }
     try {
-      const { tunnelAccess: _, ...fields } = draft;
-      const updated = await onUpdate({ ...fields, name: draft.name.trim(), directory: draft.directory.trim(), port: draft.port ? Number(draft.port) : null, ...(project.kind === 'project' ? { tunnelAllowedEmails: access.rules } : {}) });
-      setDraft(draftFor(updated)); setSaved(true);
+      const { tunnelMode, tunnelEmails, ...fields } = draft;
+      const access = project.kind === 'project' ? { tunnelAccessMode: tunnelMode, tunnelAllowedEmails: tunnelMode === 'custom' ? parseTunnelAccess(tunnelEmails).rules : [] } : {};
+      const updated = await onUpdate({ ...fields, name: draft.name.trim(), directory: draft.directory.trim(), port: draft.port ? Number(draft.port) : null, ...access });
+      setDraft(draftFor(updated)); setSaved(true); setAccessTouched(false);
     } catch (err) { setError(errorMessage(err)); }
   }
 
@@ -97,7 +109,12 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
       <Field label="Name"><input data-autofocus required value={draft.name} onChange={event => edit('name', event.target.value)} maxLength={160} /></Field>
       <Field label="Description"><textarea rows={2} value={draft.description} onChange={event => edit('description', event.target.value)} placeholder="A short note about this project." maxLength={1000} /></Field>
       {project.kind === 'project' && <Field label="Project directory" hint="Commands run in this directory. Changing this does not move files."><input className="mono" value={draft.directory} onChange={event => edit('directory', event.target.value)} /></Field>}
-      <div className="form-section"><div className="section-heading"><h3>Connection</h3></div><div className={`form-columns ${project.kind === 'project' ? 'address-columns' : 'single-column'}`}><Field label="Original URL"><input className="mono" type="url" value={draft.url} onChange={event => edit('url', event.target.value)} placeholder="http://localhost:3000" /></Field>{project.kind === 'project' && <Field label="Port"><input type="number" min="1" max="65535" value={draft.port} onChange={event => edit('port', event.target.value)} placeholder="Auto" /></Field>}</div><div className="field"><span className="field-label">Preferred hostname</span><HostnameSelect project={{ ...project, hostname: draft.hostname }} settings={settings} onChange={hostname => edit('hostname', hostname)} /><span className="field-hint">Only the hostname changes. The port, protocol, and path stay intact.</span></div>{project.kind === 'project' && <Field label="Tunnel access" hint={<>Emails allowed through this project’s Cloudflare tunnels, including agent previews of it. One per line; <code>*@example.com</code> allows a domain. Visitors confirm with a one-time PIN. Empty means anyone with the link. Reopen an open tunnel to apply changes.</>}><textarea className="mono" aria-label="Tunnel access" rows={2} value={draft.tunnelAccess} onChange={event => edit('tunnelAccess', event.target.value)} placeholder="Anyone with the link" spellCheck={false} autoCapitalize="none" /></Field>}</div>
+      <div className="form-section"><div className="section-heading"><h3>Connection</h3></div><div className={`form-columns ${project.kind === 'project' ? 'address-columns' : 'single-column'}`}><Field label="Original URL"><input className="mono" type="url" value={draft.url} onChange={event => edit('url', event.target.value)} placeholder="http://localhost:3000" /></Field>{project.kind === 'project' && <Field label="Port"><input type="number" min="1" max="65535" value={draft.port} onChange={event => edit('port', event.target.value)} placeholder="Auto" /></Field>}</div><div className="field"><span className="field-label">Preferred hostname</span><HostnameSelect project={{ ...project, hostname: draft.hostname }} settings={settings} onChange={hostname => edit('hostname', hostname)} /><span className="field-hint">Only the hostname changes. The port, protocol, and path stay intact.</span></div>{project.kind === 'project' && <>
+        <TunnelAccessField project={project} mode={draft.tunnelMode} text={draft.tunnelEmails} problem={accessTouched ? accessProblem : null} dirty={dirty} textareaRef={emailsRef}
+          onMode={mode => edit('tunnelMode', mode)} onText={text => edit('tunnelEmails', text)} onBlur={() => setAccessTouched(true)} />
+        <TunnelStaleNotice stale={tunnelStale} open={Boolean(project.runtime.tunnel)} name={project.name} actions={tunnel} access={tunnelAccess}
+          message={<>{staleText && !staleText.wasPublic ? `The open tunnel still allows only ${staleText.was}.` : 'The open tunnel still allows anyone with the link.'} Reopen it to apply the access above. The link changes.</>} />
+      </>}</div>
       {project.kind === 'project' && <div className="form-section">
         <div className="section-heading"><h3>Project identity</h3><span>Make it easy to find.</span></div>
         <div className="logo-settings"><ProjectAvatar project={{ ...project, logo: draft.logo, name: draft.name }} /><div><strong>{draft.logo ? 'Project image' : 'A simple monogram'}</strong><p>{draft.logo || 'A little personality, made from the name.'}</p></div><button className="button" type="button" disabled={!available} aria-expanded={logoOpen} onClick={() => void loadLogos()}><Image size={16} />Choose logo</button></div>
@@ -117,6 +134,7 @@ export function DetailsSheet({ project, settings, busy, launching, launchError, 
     {tab === 'duplicate' && <div className="subpanel"><span className="subpanel-icon"><Copy size={27} weight="duotone" /></span><h3>A fresh starting point.</h3><p>Keep the original and make a separate entry on your shelf.</p><form onSubmit={event => void duplicate(event)}><Field label="Name for the copy"><input value={duplicateName} onChange={event => setDuplicateName(event.target.value)} required maxLength={160} /></Field>{project.kind === 'project' && <><label className="checkbox-row"><input type="checkbox" checked={copyFiles} onChange={event => setCopyFiles(event.target.checked)} /><span><strong>Copy project files</strong><small>Leave unchecked to duplicate the configuration only.</small></span></label><Field label={copyFiles ? 'New directory' : 'Project directory (optional)'} hint={copyFiles ? 'A new absolute path. Existing directories are never overwritten.' : 'Leave empty to keep pointing to the original directory.'}><input className="mono" value={duplicateDirectory} onChange={event => setDuplicateDirectory(event.target.value)} required={copyFiles} placeholder={copyFiles ? `${project.directory}-copy` : project.directory} /></Field>{copyFiles && <div className="form-note">Dependencies, Git history, and generated files are excluded. Install dependencies in the new folder before running it.</div>}</>}<button type="submit" className="button button-primary" disabled={working || !duplicateName.trim()}>{working ? <Spinner /> : <Copy size={16} />}Duplicate {project.kind}</button></form></div>}
     {tab === 'remove' && <div className="subpanel remove-panel"><span className="subpanel-icon"><Trash size={28} weight="duotone" /></span><h3>Take it off the shelf?</h3><p>This removes <strong>{project.name}</strong> from Project Shelf{active ? ' and stops its managed process' : ''}. Your project files are never deleted.</p><label className="checkbox-row"><input type="checkbox" checked={removeConfirmed} onChange={event => setRemoveConfirmed(event.target.checked)} /><span>Remove this entry from my workspace.</span></label><button className="button button-danger" disabled={working || !removeConfirmed} onClick={() => void remove()}>{working ? <Spinner /> : <Trash size={16} />}Remove {project.kind}</button></div>}
     </fieldset>
+    {tunnel.toast}
   </Dialog>;
 }
 

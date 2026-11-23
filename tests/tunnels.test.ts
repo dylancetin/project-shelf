@@ -85,6 +85,21 @@ describe('Cloudflare quick tunnels for managed projects (fake cloudflared)', () 
     expect((await launches(root))[1]!.args).toContain('--allowed-mail you@example.com --allowed-mail *@team.example.org --url');
   });
 
+  test('an inheriting project opens its tunnel with the access of its folder layer, else the Settings default', async () => {
+    await open();
+    expect((await app.fetch(request('/api/settings', 'PATCH', { tunnelAllowedEmails: ['default@example.com'] }))).status).toBe(200);
+    const item = await running();
+    expect((await (await tunnel(item.id)).json()).tunnel.allowedEmails).toEqual(['default@example.com']);
+    expect((await tunnel(item.id, 'DELETE')).status).toBe(200);
+    // A same-folder peer with its own list now decides for the inheriting project.
+    const peer = project(root, { name: 'Peer', tunnelAccessMode: 'custom', tunnelAllowedEmails: ['peer@example.com'] });
+    app.store.insert(peer);
+    const result = await (await tunnel(item.id)).json();
+    expect(result.tunnel.allowedEmails).toEqual(['peer@example.com']);
+    expect(result.project.tunnelAccess).toEqual({ source: 'project', from: [{ id: peer.id, name: 'Peer' }], allowedEmails: ['peer@example.com'] });
+    expect((await launches(root))[1]!.args).toContain('--allowed-mail peer@example.com --url');
+  });
+
   test('rejects access rules cloudflared would refuse and keeps the saved list', async () => {
     await open();
     const item = project(root, { port });

@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { ArrowSquareOut, ArrowClockwise, Hammer, Play, RocketLaunch, Stop, Trash } from '@phosphor-icons/react';
 import type { AgentServer } from '../../shared/agent-servers';
 import type { RuntimeTarget } from '../../shared/runtime-targets';
-import { tunnelPort } from '../../shared/tunnels';
+import { tunnelAccessStale, tunnelPort } from '../../shared/tunnels';
 import type { Project, RunMode } from '../../shared/types';
 import { api, errorMessage } from '../api';
 import { ErrorNotice, Spinner } from '../components';
-import { TunnelControls } from '../Tunnel';
+import { accessSourceText, staleWords, TunnelAccessLine, TunnelButtons, TunnelStaleNotice, useTunnelActions } from '../Tunnel';
 import { alternateHostLinks, describeTarget, MODE_LABEL, uptimeLabel, type TargetKey, type TargetView } from './model';
 import { useNow } from './poll';
 import { hostOf, RuntimeStatus } from './parts';
@@ -156,15 +156,26 @@ function Facts({ view, server }: { view: TargetView; server?: AgentServer }) {
 }
 
 function TunnelRow({ view, blocked, onOpen, onClose }: { view: TargetView; blocked: string | null; onOpen: () => Promise<NonNullable<TargetView['tunnel']>>; onClose: () => Promise<void> }) {
-  const url = view.tunnel?.status === 'running' ? view.tunnel.url : null;
-  return <div className="embed-row">
-    <div className="embed-row-text">
-      <strong>Cloudflare tunnel</strong>
-      {url ? <a href={url} target="_blank" rel="noreferrer" title={`Open ${url} (public)`}>{hostOf(url)}</a>
-        : <span>{view.tunnel ? 'Opening…' : blocked ?? 'Share a public link to this server.'}</span>}
+  const { tunnel, access } = view;
+  const actions = useTunnelActions({ name: view.name, tunnel, access, onOpen, onClose });
+  const url = tunnel?.status === 'running' ? tunnel.url : null;
+  const stale = tunnelAccessStale(tunnel, access);
+  const words = tunnel && access ? staleWords(tunnel, access) : null;
+  const protectedNow = Boolean(access?.allowedEmails.length);
+  return <>
+    <div className="embed-row">
+      <div className="embed-row-text">
+        <strong>Cloudflare tunnel</strong>
+        {url ? <a href={url} target="_blank" rel="noreferrer" title={`Open ${url} (${tunnel?.allowedEmails?.length ? 'one-time PIN' : 'public'})`}>{hostOf(url)}</a>
+          : <span>{tunnel ? 'Opening…' : blocked ?? `Share a ${protectedNow ? 'protected' : 'public'} link to this server.`}</span>}
+        {access && !stale && actions.pending !== 'reopening' && <TunnelAccessLine access={access} tunnel={tunnel} ownerId={view.ownerId} newTab />}
+      </div>
+      <div className="embed-row-actions"><TunnelButtons name={view.name} tunnel={tunnel} access={access} disabledReason={blocked} actions={actions} /></div>
     </div>
-    <div className="embed-row-actions"><TunnelControls name={view.name} tunnel={view.tunnel} disabledReason={blocked} onOpen={onOpen} onClose={onClose} /></div>
-  </div>;
+    {access && <TunnelStaleNotice stale={stale} open={Boolean(tunnel)} name={view.name} actions={actions} access={access} buttonLabel="Reopen" boxClassName="tunnel-stale"
+      message={words && <>{words.wasPublic ? 'Still open to anyone with the link.' : `Still limited to ${words.was}.`} Now: {words.nowPublic ? 'anyone with the link' : words.now}{access.source === 'own' ? '' : ` (${accessSourceText(access)})`}.</>} />}
+    {actions.toast}
+  </>;
 }
 
 function HostLinks({ view, active, hostnames, pageHost }: { view: TargetView; active: boolean; hostnames: readonly string[] | null; pageHost: string | null }) {

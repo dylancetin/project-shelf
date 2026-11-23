@@ -1,5 +1,6 @@
-import { CaretRight, Play } from '@phosphor-icons/react';
+import { CaretRight, Cloud, Play } from '@phosphor-icons/react';
 import type { RuntimeTarget } from '../../shared/runtime-targets';
+import { tunnelAccessStale } from '../../shared/tunnels';
 import { ProjectAvatar } from '../components';
 import { describeTarget, MODE_LABEL, type TargetKey } from './model';
 import { RuntimeStatus } from './parts';
@@ -17,12 +18,13 @@ export function RuntimeList({ runtimes, pageHost, agentsError, onPick }: {
     {agentsError && <p className="embed-list-note embed-list-warning" role="status">Agent previews could not be listed: {agentsError}</p>}
     {runtimes.length ? <ul aria-label="Active runtimes">{runtimes.map(runtime => {
       const view = describeTarget(runtime);
+      const tunnel = view.tunnel ? tunnelAccessStale(view.tunnel, view.access) ? 'reopen needed' : view.tunnel.allowedEmails?.length ? 'protected' : 'public' : null;
       return <li key={view.key}>
-        <button type="button" className="embed-runtime" onClick={() => onPick(view.key)} aria-label={`${view.name}, ${view.statusLabel.toLowerCase()}. Open controls`}>
+        <button type="button" className="embed-runtime" onClick={() => onPick(view.key)} aria-label={`${view.name}, ${view.statusLabel.toLowerCase()}${tunnel ? `, Cloudflare tunnel ${tunnel}` : ''}. Open controls`}>
           <ProjectAvatar project={view.avatar} />
           <span className="embed-runtime-text">
             <strong>{view.name}</strong>
-            <span>{view.kind === 'agent' ? 'Agent preview' : view.mode ? MODE_LABEL[view.mode] : 'Project'}{view.port !== null && <> · <span className="mono">:{view.port}</span></>}</span>
+            <span>{view.kind === 'agent' ? 'Agent preview' : view.mode ? MODE_LABEL[view.mode] : 'Project'}{view.port !== null && <> · <span className="mono">:{view.port}</span></>}{tunnel && <> · <span className={tunnel === 'protected' ? 'embed-tunnel-meta' : 'embed-tunnel-meta embed-list-warning'}><Cloud size={11} weight="fill" aria-hidden="true" />{tunnel}</span></>}</span>
           </span>
           <RuntimeStatus view={view} />
           <CaretRight size={14} aria-hidden="true" />
